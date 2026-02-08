@@ -122,10 +122,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     }
 }
 
+/// Axum handler for raw RESP WebSocket connections at `/.raw`.
+///
+/// This endpoint allows clients to send and receive raw Redis protocol frames.
 pub async fn ws_handler_raw(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
     ws.on_upgrade(|socket| handle_socket_raw(socket, state))
 }
 
+/// Main loop for raw RESP WebSocket connections.
+///
+/// It maintains a buffer for incoming data, parses complete RESP commands,
+/// executes them against Redis, and sends the raw RESP responses back.
 async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
     let mut buffer = Vec::new();
@@ -133,9 +140,10 @@ async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
             Ok(msg) => msg,
-            Err(_) => return,
+            Err(_) => return, // Client disconnected or error
         };
 
+        // Handle different message types
         match msg {
             Message::Binary(data) => buffer.extend_from_slice(&data),
             Message::Text(text) => buffer.extend_from_slice(text.as_bytes()),
@@ -149,21 +157,24 @@ async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
             _ => continue,
         }
 
+        // Process any complete commands in the buffer
         loop {
             match crate::resp::parse_command(&buffer) {
                 Ok(Some((args, consumed))) => {
+                    // Consume the bytes used by the command
                     buffer.drain(..consumed);
 
                     if args.is_empty() {
                         continue;
                     }
 
+                    // Get a connection from the pool
                     let mut conn = match state.pool.get().await {
                         Ok(conn) => conn,
                         Err(e) => {
                             let err_resp = format!("-ERR {}\r\n", e);
                             if sender
-                                .send(Message::Binary(err_resp.into_bytes()))
+                                .send(Message::Binary(err_resp.into_bytes().into()))
                                 .await
                                 .is_err()
                             {
@@ -173,6 +184,7 @@ async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
                         }
                     };
 
+                    // Build and execute the Redis command
                     let cmd_name = String::from_utf8_lossy(&args[0]).to_string();
                     let mut redis_cmd = cmd(&cmd_name);
                     for arg in &args[1..] {
@@ -182,15 +194,17 @@ async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
                     let result: Result<RedisValue, _> = redis_cmd.query_async(&mut conn).await;
                     match result {
                         Ok(val) => {
+                            // Convert result to RESP and send as binary message
                             let resp = crate::resp::value_to_resp(&val);
                             if sender.send(Message::Binary(resp.into())).await.is_err() {
                                 return;
                             }
                         }
                         Err(e) => {
+                            // Forward Redis error as RESP error
                             let err_resp = format!("-ERR {}\r\n", e);
                             if sender
-                                .send(Message::Binary(err_resp.into_bytes()))
+                                .send(Message::Binary(err_resp.into_bytes().into()))
                                 .await
                                 .is_err()
                             {
@@ -199,18 +213,19 @@ async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
                         }
                     }
                 }
-                Ok(None) => break, // Need more data
+                Ok(None) => break, // Need more data for a complete command
                 Err(e) => {
                     let err_msg = match e {
-                        crate::resp::RespError::Incomplete => break,
+                        crate::resp::RespError::Incomplete => break, // Should not happen with current parser but handled for safety
                         _ => {
+                            // Fatal command format error, clear buffer and inform client
                             buffer.clear();
                             "-ERR Invalid RESP\r\n"
                         }
                     };
                     if err_msg.starts_with("-ERR") {
                         if sender
-                            .send(Message::Binary(err_msg.as_bytes().to_vec()))
+                            .send(Message::Binary(err_msg.as_bytes().to_vec().into()))
                             .await
                             .is_err()
                         {

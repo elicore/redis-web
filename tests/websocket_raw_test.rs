@@ -1,3 +1,9 @@
+//! Integration tests for the raw RESP WebSocket endpoint (`/.raw`).
+//!
+//! These tests verify that the server correctly handles raw RESP frames,
+//! supporting various Redis commands, complex data types, streaming inputs,
+//! and error conditions.
+
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use std::sync::Arc;

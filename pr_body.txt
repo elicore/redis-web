@@ -1,0 +1,8 @@
+This PR implements a new WebSocket endpoint at `/.raw` that supports raw RESP frames, as described in #17.
+
+### Changes:
+- Added `src/resp.rs` for RESP parsing and formatting.
+- Added `ws_handler_raw` and `handle_socket_raw` in `src/websocket.rs`.
+- Registered `/.raw` route in `src/main.rs`.
+- Added comprehensive integration tests in `tests/websocket_raw_test.rs`.
+- Updated `README.md` with documentation for the new endpoint.

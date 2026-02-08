@@ -186,7 +186,10 @@ async fn async_main(config: Config) {
     }
 
     if config.websockets {
+        // Bi-directional JSON WebSocket endpoint
         app = app.route("/.json", get(websocket::ws_handler));
+        // Bi-directional Raw RESP WebSocket endpoint
+        app = app.route("/.raw", get(websocket::ws_handler_raw));
     }
 
     let app = app

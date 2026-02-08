@@ -338,3 +338,132 @@ async fn test_etag_support() {
 
     assert_eq!(resp.status(), reqwest::StatusCode::OK);
 }
+
+/// Tests the raw output mode (.raw extension) for full RESP compliance.
+///
+/// This test validates:
+/// 1. Simple strings (SET -> OK) return `+OK\r\n`
+/// 2. Integers (INCR) return `:123\r\n`
+/// 3. Bulk strings (GET) return `$len\r\nval\r\n`
+/// 4. Arrays (LRANGE) return `*count\r\n...`
+/// 5. Errors (invalid command) return `-ERR ...\r\n`
+#[tokio::test]
+async fn test_raw_mode_parity() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+
+    // 1. Raw string response (SET -> +OK)
+    let _ = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SET/raw_key/raw_value",
+            server.port
+        ))
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SET/raw_key/raw_value.raw",
+            server.port
+        ))
+        .send()
+        .await
+        .expect("Failed to send request");
+    assert!(resp.status().is_success());
+    let body = resp.text().await.expect("Failed to read body");
+    // Expecting RESP simple string for status OK
+    assert_eq!(body, "+OK\r\n");
+
+    // 2. Raw bulk string response (GET -> $len\r\nval\r\n)
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/GET/raw_key.raw", server.port))
+        .send()
+        .await
+        .expect("Failed to send request");
+    assert!(resp.status().is_success());
+    let body = resp.text().await.expect("Failed to read body");
+    // "raw_value" is 9 bytes
+    assert_eq!(body, "$9\r\nraw_value\r\n");
+
+    // 3. Raw integer response (INCR -> :123)
+    let _ = client
+        .get(&format!("http://127.0.0.1:{}/SET/counter/10", server.port))
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/INCR/counter.raw",
+            server.port
+        ))
+        .send()
+        .await
+        .expect("Failed to send request");
+    assert!(resp.status().is_success());
+    let body = resp.text().await.expect("Failed to read body");
+    assert_eq!(body, ":11\r\n");
+
+    // 4. Raw array response (LRANGE)
+    // Clean up key first
+    let _ = client
+        .get(&format!("http://127.0.0.1:{}/DEL/list", server.port))
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    let _ = client
+        .get(&format!("http://127.0.0.1:{}/RPUSH/list/a", server.port))
+        .send()
+        .await
+        .expect("Failed to send request");
+    let _ = client
+        .get(&format!("http://127.0.0.1:{}/RPUSH/list/b", server.port))
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/LRANGE/list/0/-1.raw",
+            server.port
+        ))
+        .send()
+        .await
+        .expect("Failed to send request");
+    assert!(resp.status().is_success());
+    let body = resp.text().await.expect("Failed to read body");
+    // Expecting array of 2 bulk strings
+    // *2\r\n$1\r\na\r\n$1\r\nb\r\n
+    // Order might be a bit tricky if concurrent tests run? No, each test uses server.port.
+    // And list is usually ordered by push.
+    assert_eq!(body, "*2\r\n$1\r\na\r\n$1\r\nb\r\n");
+
+    // 5. Raw error response (Unknown Command)
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/UNKNOWN_CMD.raw", server.port))
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    // We expect successful *connection* but the body contains the RESP error.
+    // The HTTP status code for errors in raw mode:
+    // With current implementation, unknown command likely returns 404 or 400.
+    // If we want raw parity, maybe we should return 200 with -ERR body.
+    // But let's see what happens.
+    // For now, I'll assertion on body content mainly.
+    // IF the server returns 4xx/5xx, `resp.status().is_success()` will fail.
+    // I'll check body regardless of status for now.
+
+    // Actually, let's just assert on the body content being a RESP error.
+    // If status is not 200, we can accept that too, as long as body is right.
+    // But typically raw mode implies the body IS the protocol.
+
+    let body = resp.text().await.expect("Failed to read body");
+    assert!(
+        body.starts_with("-ERR"),
+        "Body should start with -ERR, got: {}",
+        body
+    );
+}

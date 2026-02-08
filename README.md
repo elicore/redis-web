@@ -130,7 +130,7 @@ curl http://127.0.0.1:7379/INCR/y
 
 Other formats:
 
-- `.raw` or `?type=raw` – plain-text representation (useful for CLI/debugging).
+- `.raw` or `?type=raw` – raw Redis Protocol (RESP) output (useful for debugging or RESP clients).
 - `.msg` / `.msgpack` or `?type=msg` / `?type=msgpack` – MessagePack (`application/x-msgpack`).
 
 ### File upload

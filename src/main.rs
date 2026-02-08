@@ -187,6 +187,7 @@ async fn async_main(config: Config) {
 
     if config.websockets {
         app = app.route("/.json", get(websocket::ws_handler));
+        app = app.route("/.raw", get(websocket::ws_handler_raw));
     }
 
     let app = app

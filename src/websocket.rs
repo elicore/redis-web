@@ -121,3 +121,105 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 }
+
+pub async fn ws_handler_raw(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
+    ws.on_upgrade(|socket| handle_socket_raw(socket, state))
+}
+
+async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut buffer = Vec::new();
+
+    while let Some(msg) = receiver.next().await {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(_) => return,
+        };
+
+        match msg {
+            Message::Binary(data) => buffer.extend_from_slice(&data),
+            Message::Text(text) => buffer.extend_from_slice(text.as_bytes()),
+            Message::Close(_) => return,
+            Message::Ping(p) => {
+                if sender.send(Message::Pong(p)).await.is_err() {
+                    return;
+                }
+                continue;
+            }
+            _ => continue,
+        }
+
+        loop {
+            match crate::resp::parse_command(&buffer) {
+                Ok(Some((args, consumed))) => {
+                    buffer.drain(..consumed);
+
+                    if args.is_empty() {
+                        continue;
+                    }
+
+                    let mut conn = match state.pool.get().await {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            let err_resp = format!("-ERR {}\r\n", e);
+                            if sender
+                                .send(Message::Binary(err_resp.into_bytes()))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            continue;
+                        }
+                    };
+
+                    let cmd_name = String::from_utf8_lossy(&args[0]).to_string();
+                    let mut redis_cmd = cmd(&cmd_name);
+                    for arg in &args[1..] {
+                        redis_cmd.arg(arg);
+                    }
+
+                    let result: Result<RedisValue, _> = redis_cmd.query_async(&mut conn).await;
+                    match result {
+                        Ok(val) => {
+                            let resp = crate::resp::value_to_resp(&val);
+                            if sender.send(Message::Binary(resp.into())).await.is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            let err_resp = format!("-ERR {}\r\n", e);
+                            if sender
+                                .send(Message::Binary(err_resp.into_bytes()))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Ok(None) => break, // Need more data
+                Err(e) => {
+                    let err_msg = match e {
+                        crate::resp::RespError::Incomplete => break,
+                        _ => {
+                            buffer.clear();
+                            "-ERR Invalid RESP\r\n"
+                        }
+                    };
+                    if err_msg.starts_with("-ERR") {
+                        if sender
+                            .send(Message::Binary(err_msg.as_bytes().to_vec()))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}

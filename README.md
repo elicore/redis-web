@@ -145,20 +145,43 @@ curl http://127.0.0.1:7379/GET/json_key
 
 ### WebSockets
 
-When `"websockets": true` is set in the config, Webdis enables a JSON WebSocket endpoint at `/.json`:
+When `"websockets": true` is set in the config, Webdis enables two bi-directional endpoints:
 
-- Connect to `ws://host:port/.json`.
-- Send commands as JSON arrays, e.g. `["SET", "hello", "world"]`.
+#### 1. JSON Endpoint (`/.json`)
+
+- Send commands as JSON arrays, e.g. `["SET", "key", "val"]`.
 - Receive responses as JSON objects, e.g. `{"SET":"OK"}`.
+- Pub/Sub messages are received as `{"message": "payload"}`.
 
-Example (browser console):
+Example:
 
 ```javascript
 const socket = new WebSocket("ws://127.0.0.1:7379/.json");
-socket.onmessage = (e) => console.log("WS:", e.data);
+socket.onmessage = (e) => console.log("JSON WS:", e.data);
 socket.onopen = () => {
   socket.send(JSON.stringify(["SET", "hello", "world"]));
-  socket.send(JSON.stringify(["GET", "hello"]));
+};
+```
+
+#### 2. Raw RESP Endpoint (`/.raw`)
+
+- Send and receive raw Redis Serialization Protocol (RESP) frames.
+- This allows full protocol transparency for clients that prefer RESP over JSON.
+
+Example:
+
+```javascript
+const socket = new WebSocket("ws://127.0.0.1:7379/.raw");
+socket.onmessage = async (e) => {
+  const data = await e.data.arrayBuffer();
+  console.log("RESP WS (raw bytes):", new Uint8Array(data));
+};
+socket.onopen = () => {
+  // Send "SET hello world" in RESP: *3\r\n$3\r\nSET\r\n$5\r\nhello\r\n$5\r\nworld\r\n
+  const encoder = new TextEncoder();
+  socket.send(
+    encoder.encode("*3\r\n$3\r\nSET\r\n$5\r\nhello\r\n$5\r\nworld\r\n"),
+  );
 };
 ```
 

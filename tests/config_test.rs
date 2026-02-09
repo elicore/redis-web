@@ -9,11 +9,18 @@
 //! These tests use temporary files to avoid polluting the filesystem.
 
 use std::io::Write;
+use std::sync::Mutex;
 
 use webdis::config::{
     Config, DEFAULT_HTTP_MAX_REQUEST_SIZE, DEFAULT_HTTP_THREADS, DEFAULT_POOL_SIZE_PER_THREAD,
     DEFAULT_VERBOSITY,
 };
+
+/// Tests in this module may temporarily set process-wide environment variables.
+///
+/// Since Rust tests can run in parallel, we guard these mutations behind a mutex
+/// to avoid cross-test interference.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Tests that all configuration fields are correctly loaded from a JSON file.
 ///
@@ -177,4 +184,64 @@ fn test_legacy_alias_precedence() {
     let config = Config::new(path).unwrap();
     assert_eq!(config.http_threads, Some(8));
     assert_eq!(config.pool_size_per_thread, Some(25));
+}
+
+/// Env-var expansion works for `$VARNAME` placeholders in string values.
+///
+/// This covers a compatibility feature from the original Webdis where config values can
+/// be specified indirectly via environment variables (including for numeric fields like ports).
+#[test]
+fn test_env_var_expansion_works() {
+    let _guard = ENV_LOCK.lock().unwrap();
+
+    std::env::set_var("REDIS_HOST", "redis.example.test");
+    std::env::set_var("REDIS_PORT", "6380");
+
+    let config_json = r#"{
+        "redis_host": "$REDIS_HOST",
+        "redis_port": "$REDIS_PORT",
+        "http_host": "127.0.0.1",
+        "http_port": 7379,
+        "database": 0
+    }"#;
+
+    let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+    write!(file, "{}", config_json).unwrap();
+    let path = file.path().to_str().unwrap();
+
+    let config = Config::new(path).unwrap();
+    assert_eq!(config.redis_host, "redis.example.test");
+    assert_eq!(config.redis_port, 6380);
+}
+
+/// Missing env vars referenced via `$VARNAME` produce a clear configuration error.
+#[test]
+fn test_env_var_expansion_missing_var_fails() {
+    let _guard = ENV_LOCK.lock().unwrap();
+
+    std::env::remove_var("MISSING_VAR");
+
+    let config_json = r#"{
+        "redis_host": "127.0.0.1",
+        "redis_port": 6379,
+        "http_host": "127.0.0.1",
+        "http_port": 7379,
+        "database": 0,
+        "logfile": "$MISSING_VAR"
+    }"#;
+
+    let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+    write!(file, "{}", config_json).unwrap();
+    let path = file.path().to_str().unwrap();
+
+    let err = Config::new(path).expect_err("expected missing env var to fail config loading");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("MISSING_VAR"),
+        "error should mention missing env var name, got: {msg}"
+    );
+    assert!(
+        msg.contains("logfile"),
+        "error should mention the config key path, got: {msg}"
+    );
 }

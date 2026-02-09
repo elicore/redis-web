@@ -201,6 +201,23 @@ Pub/Sub is available both over HTTP and WebSockets:
 - `webdis.legacy.json` mirrors the historical C configuration and remains fully supported.
 - Every field below matches the descriptions in the schema; optional values fall back to the listed defaults.
 
+### Environment variables
+
+For compatibility with the original Webdis, configuration supports environment variable expansion:
+
+- Any JSON **string** value that is exactly of the form `$VARNAME` is expanded from the process environment.
+- `VARNAME` must be non-empty and contain only `A–Z`, `0–9`, and `_` (uppercase only).
+- If the environment variable is missing, config loading fails with an error that names the missing var and the config key.
+
+Example:
+
+```json
+{
+  "redis_host": "$REDIS_HOST",
+  "redis_port": "$REDIS_PORT"
+}
+```
+
 | Key                     | Description                                                                             | Optional | Type             | Default                        |
 | ----------------------- | --------------------------------------------------------------------------------------- | -------- | ---------------- | ------------------------------ |
 | `$schema`               | Path or URL to this schema file so editors can enable validation.                       | Yes      | string           | `./webdis.schema.json`         |

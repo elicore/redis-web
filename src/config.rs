@@ -1,4 +1,4 @@
-use config::{Config as ConfigLoader, ConfigError, File};
+use config::{Config as ConfigLoader, ConfigError, File, FileFormat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -85,11 +85,28 @@ pub enum RedisAuthConfig {
 
 impl Config {
     pub fn new(config_path: &str) -> Result<Self, ConfigError> {
-        let s = ConfigLoader::builder()
+        // Load the config file as untyped JSON first so we can preserve Webdis' legacy
+        // behavior where some values (notably integers) can be specified indirectly via
+        // environment variables (e.g. `"redis_port": "$REDIS_PORT"`).
+        //
+        // We expand `$VARNAME` placeholders before deserializing into the typed `Config`
+        // struct so every string field can participate (paths, passwords, etc.).
+        let loader = ConfigLoader::builder()
             .add_source(File::with_name(config_path))
             .build()?;
 
-        let mut config: Self = s.try_deserialize()?;
+        let mut json: Value = loader.try_deserialize()?;
+        expand_env_vars_in_json(&mut json, JsonPath::root())?;
+
+        // Re-parse via the `config` crate so it can apply its value coercions
+        // (for example, parsing `"6379"` into a `u16`).
+        let expanded = serde_json::to_string(&json)
+            .map_err(|e| ConfigError::Message(format!("failed to serialize expanded config: {e}")))?;
+        let loader = ConfigLoader::builder()
+            .add_source(File::from_str(&expanded, FileFormat::Json))
+            .build()?;
+
+        let mut config: Self = loader.try_deserialize()?;
         config.apply_legacy_aliases();
         Ok(config)
     }
@@ -230,4 +247,105 @@ fn decorate_default_map(mut map: Map<String, Value>, schema_ref: &str) -> Map<St
     }
 
     ordered
+}
+
+/// A JSON path used for error reporting when expanding `$VARNAME` placeholders.
+///
+/// This is intentionally kept as a lightweight, allocation-friendly helper so the
+/// config loader can provide actionable error messages (e.g. `ssl.redis_sni`).
+#[derive(Clone, Debug)]
+struct JsonPath {
+    inner: String,
+}
+
+impl JsonPath {
+    fn root() -> Self {
+        Self {
+            inner: String::new(),
+        }
+    }
+
+    fn push_key(&self, key: &str) -> Self {
+        if self.inner.is_empty() {
+            Self {
+                inner: key.to_string(),
+            }
+        } else {
+            Self {
+                inner: format!("{}.{}", self.inner, key),
+            }
+        }
+    }
+
+    fn push_index(&self, idx: usize) -> Self {
+        Self {
+            inner: format!("{}[{}]", self.inner, idx),
+        }
+    }
+
+    fn display(&self) -> &str {
+        if self.inner.is_empty() {
+            "<root>"
+        } else {
+            &self.inner
+        }
+    }
+}
+
+/// Returns `true` when `name` matches the supported `$VARNAME` syntax.
+///
+/// Webdis' env-var expansion is intentionally conservative:
+/// - The JSON value must be a string that *starts with* `$`.
+/// - The remainder must be non-empty and contain only `A–Z`, `0–9`, and `_`.
+///
+/// This differs from many shells, which also allow lowercase names and restrict the
+/// first character; we document this behavior for compatibility and predictability.
+fn is_valid_env_var_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Walks a JSON value tree and expands `$VARNAME` placeholders from the process environment.
+///
+/// Expansion happens before typed deserialization so any string field can reference
+/// environment variables. If a referenced environment variable is not set, returns a
+/// `ConfigError` with an actionable message that includes both the missing name and
+/// the JSON key path where it was referenced.
+fn expand_env_vars_in_json(value: &mut Value, path: JsonPath) -> Result<(), ConfigError> {
+    match value {
+        Value::String(s) => {
+            let Some(var_name) = s.strip_prefix('$') else {
+                return Ok(());
+            };
+            if !is_valid_env_var_name(var_name) {
+                return Ok(());
+            }
+
+            match std::env::var(var_name) {
+                Ok(env_value) => {
+                    *s = env_value;
+                    Ok(())
+                }
+                Err(_) => Err(ConfigError::Message(format!(
+                    "missing environment variable '{var_name}' referenced by config key '{}'",
+                    path.display()
+                ))),
+            }
+        }
+        Value::Array(items) => {
+            for (idx, item) in items.iter_mut().enumerate() {
+                expand_env_vars_in_json(item, path.push_index(idx))?;
+            }
+            Ok(())
+        }
+        Value::Object(map) => {
+            for (key, item) in map.iter_mut() {
+                expand_env_vars_in_json(item, path.push_key(key))?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }

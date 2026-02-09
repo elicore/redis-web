@@ -158,20 +158,26 @@ async fn async_main(config: Config) {
         .expect("Failed to create Redis client for Pub/Sub");
     let pubsub_manager = pubsub::PubSubManager::new(pubsub_client);
 
+    // State management: shared pool, ACLs, and the Pub/Sub manager.
+    // The Pub/Sub manager is separate from the pool as it requires dedicated long-lived connections.
     let app_state = Arc::new(AppState {
         pool,
         acl: acl::Acl::new(config.acl),
         pubsub: pubsub_manager,
     });
+
     let mut app = Router::new()
+        // API Route handling: uses Axum 0.8 wildcard syntax {*wildcard}
+        // to capture all segments after the base path for command parsing.
         .route(
-            "/*command",
+            "/{*command}",
             get(handler::handle_get)
                 .post(handler::handle_post)
                 .put(handler::handle_put)
                 .options(handler::handle_options),
         )
-        .route("/SUBSCRIBE/*channel", get(pubsub::handle_subscribe));
+        // Dedicated Pub/Sub endpoint for SSE and WebSocket subscriptions.
+        .route("/SUBSCRIBE/{*channel}", get(pubsub::handle_subscribe));
 
     if let Some(default_root) = config.default_root.clone() {
         app = app.route(

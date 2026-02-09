@@ -71,7 +71,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                                                                         // For now, let's just send the payload as a string or JSON.
                                                                                         // Let's wrap it: {"message": payload}
                                     if tx_clone
-                                        .send(Message::Text(response.to_string()))
+                                        .send(Message::Text(response.to_string().into()))
                                         .await
                                         .is_err()
                                     {
@@ -90,7 +90,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     Err(_) => {
                         let _ = tx
                             .send(Message::Text(
-                                serde_json::json!({"error": "Service Unavailable"}).to_string(),
+                                serde_json::json!({"error": "Service Unavailable"})
+                                    .to_string()
+                                    .into(),
                             ))
                             .await;
                         continue;
@@ -107,12 +109,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     Ok(val) => {
                         let json_val = redis_value_to_json(val);
                         let response = serde_json::json!({cmd_name: json_val});
-                        let _ = tx.send(Message::Text(response.to_string())).await;
+                        // Axum 0.8 requires Utf8Bytes for Message::Text; .into() handles the conversion from String.
+                        let _ = tx.send(Message::Text(response.to_string().into())).await;
                     }
                     Err(e) => {
                         let _ = tx
                             .send(Message::Text(
-                                serde_json::json!({"error": e.to_string()}).to_string(),
+                                serde_json::json!({"error": e.to_string()})
+                                    .to_string()
+                                    .into(),
                             ))
                             .await;
                     }

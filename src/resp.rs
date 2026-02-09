@@ -24,21 +24,22 @@ pub fn value_to_resp(v: &Value) -> Vec<u8> {
     match v {
         Value::Nil => b"$-1\r\n".to_vec(),
         Value::Int(i) => format!(":{}\r\n", i).into_bytes(),
-        Value::Data(bytes) => {
+        Value::BulkString(bytes) => {
             let mut res = format!("${}\r\n", bytes.len()).into_bytes();
             res.extend_from_slice(bytes);
             res.extend_from_slice(b"\r\n");
             res
         }
-        Value::Bulk(items) => {
+        Value::Array(items) => {
             let mut res = format!("*{}\r\n", items.len()).into_bytes();
             for item in items {
                 res.extend_from_slice(&value_to_resp(item));
             }
             res
         }
-        Value::Status(s) => format!("+{}\r\n", s).into_bytes(),
+        Value::SimpleString(s) => format!("+{}\r\n", s).into_bytes(),
         Value::Okay => b"+OK\r\n".to_vec(),
+        _ => b"-ERR Unsupported RESP3 type\r\n".to_vec(),
     }
 }
 
@@ -116,11 +117,11 @@ mod tests {
         assert_eq!(value_to_resp(&Value::Okay), b"+OK\r\n");
         assert_eq!(value_to_resp(&Value::Int(42)), b":42\r\n");
         assert_eq!(
-            value_to_resp(&Value::Data(b"hello".to_vec())),
+            value_to_resp(&Value::BulkString(b"hello".to_vec())),
             b"$5\r\nhello\r\n"
         );
         assert_eq!(
-            value_to_resp(&Value::Bulk(vec![Value::Int(1), Value::Okay])),
+            value_to_resp(&Value::Array(vec![Value::Int(1), Value::Okay])),
             b"*2\r\n:1\r\n+OK\r\n"
         );
     }

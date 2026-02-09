@@ -31,16 +31,18 @@ impl PubSubManager {
         tokio::spawn(async move {
             loop {
                 info!("Starting Pub/Sub background task...");
-                let conn = match client.get_async_connection().await {
-                    Ok(conn) => conn,
+                // Use get_async_pubsub() to get a dedicated connection for subscriptions.
+                // Standard async connections in redis-rs are multiplexed and cannot be used
+                // for blocking subscription loops.
+                let mut pubsub = match client.get_async_pubsub().await {
+                    Ok(pubsub) => pubsub,
                     Err(e) => {
-                        error!("Failed to get Redis connection for Pub/Sub: {}", e);
+                        error!("Failed to get Redis Pub/Sub connection: {}", e);
+                        // Retry with backoff or delay to avoid tight loop on failure
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                         continue;
                     }
                 };
-
-                let mut pubsub = conn.into_pubsub();
 
                 loop {
                     // Check for commands first

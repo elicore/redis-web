@@ -98,7 +98,7 @@ impl TestServer {
         assert!(status.success());
 
         // Create a temporary config file that will be automatically deleted when dropped
-        let mut config_file = tempfile::Builder::new()
+        let config_file = tempfile::Builder::new()
             .suffix(".json")
             .tempfile()
             .expect("Failed to create temp config file");
@@ -138,15 +138,37 @@ impl TestServer {
             ]
         });
 
+        Self::spawn_with_config_and_env(config_file, config_content, &[]).await
+    }
+
+    /// Spawns a Webdis process using an explicit JSON config and optional env vars.
+    ///
+    /// This is used by integration tests that need to validate config loader behavior
+    /// end-to-end (for example, `$VARNAME` environment variable expansion).
+    async fn spawn_with_config_and_env(
+        mut config_file: NamedTempFile,
+        config_content: serde_json::Value,
+        env: &[(&str, &str)],
+    ) -> Self {
         write!(config_file, "{}", config_content.to_string()).expect("Failed to write config");
+
+        let port = config_content
+            .get("http_port")
+            .and_then(|v| v.as_u64())
+            .and_then(|p| u16::try_from(p).ok())
+            .expect("config_content.http_port must be a valid u16");
 
         let config_path = config_file.path().to_str().unwrap().to_string();
 
-        // Spawn the Webdis process with the temporary config
-        let process = Command::new("target/debug/webdis")
-            .arg(&config_path)
-            .spawn()
-            .expect("Failed to start webdis");
+        // Spawn the Webdis process with the temporary config.
+        // Note: we inject per-process env vars via Command to avoid mutating
+        // the process-global test environment (tests can run in parallel).
+        let mut cmd = Command::new("target/debug/webdis");
+        cmd.arg(&config_path);
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let process = cmd.spawn().expect("Failed to start webdis");
 
         // Give the server time to start up and bind to the port
         // This is a simple approach; production code might poll the port instead
@@ -205,6 +227,70 @@ async fn test_basic_get_set() {
     assert!(resp.status().is_success());
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["GET"], "test_value");
+}
+
+/// Tests env-var expansion end-to-end by starting Webdis with `$REDIS_HOST` / `$REDIS_PORT`.
+///
+/// This validates that:
+/// - The config loader expands `$VARNAME` placeholders before deserialization.
+/// - The expanded values are honored by the running server process.
+/// - Numeric fields like ports continue to work when configured via env vars.
+#[tokio::test]
+async fn test_env_var_expansion_end_to_end() {
+    let port = {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind to random port");
+        listener.local_addr().unwrap().port()
+    };
+
+    let config_content = serde_json::json!({
+        "redis_host": "$REDIS_HOST",
+        "redis_port": "$REDIS_PORT",
+        "http_host": "127.0.0.1",
+        "http_port": port,
+        "database": 0,
+        "websockets": false,
+        "daemonize": false,
+        "verbosity": 4
+    });
+
+    let config_file = tempfile::Builder::new()
+        .suffix(".json")
+        .tempfile()
+        .expect("Failed to create temp config file");
+
+    let server = TestServer::spawn_with_config_and_env(
+        config_file,
+        config_content,
+        &[("REDIS_HOST", "127.0.0.1"), ("REDIS_PORT", "6379")],
+    )
+    .await;
+
+    let client = Client::new();
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SET/env_expand_key/env_expand_value",
+            server.port
+        ))
+        .send()
+        .await
+        .expect("Failed to send request");
+    assert!(resp.status().is_success());
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["SET"], "OK");
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/GET/env_expand_key",
+            server.port
+        ))
+        .send()
+        .await
+        .expect("Failed to send request");
+    assert!(resp.status().is_success());
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["GET"], "env_expand_value");
 }
 
 /// Tests JSON value handling through Webdis.

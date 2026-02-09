@@ -4,27 +4,32 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.0", features = ["full"] }
-axum = { version = "0.7", features = ["ws"] }
-redis = { version = "0.24", features = [
+tokio = { version = "1.49", features = ["full"] }
+# Axum 0.8 introduces several breaking changes, including Utf8Bytes for WebSocket messages
+# and a new routing syntax {*wildcard} for path segments starting with '*'.
+axum = { version = "0.8", features = ["ws"] }
+
+# redis 0.32.x implements many RESP3 features and renames several Value variants (e.g., Data -> BulkString).
+# Version is pinned to match the re-export from deadpool-redis and ensure API consistency.
+redis = { version = "0.32.7", features = [
     "tokio-comp",
     "connection-manager",
     "tokio-native-tls-comp",
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-clap = { version = "4.0", features = ["derive"] }
-config = "0.13"
+clap = { version = "4.5", features = ["derive"] }
+config = "0.15"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-deadpool-redis = "0.14"
-ipnet = "2.9"
+deadpool-redis = "0.22"
+ipnet = "2.11"
 futures = "0.3"
 tokio-stream = "0.1"
 rmp-serde = "1.3.0"
 base64 = "0.22.1"
 async-stream = "0.3.6"
-nix = { version = "0.27", features = ["user", "fs"] }
+nix = { version = "0.31", features = ["user", "fs"] }
 daemonize = "0.5"
 tracing-appender = "0.2"
 sha1 = "0.10"
@@ -32,6 +37,6 @@ hex = "0.4"
 
 [dev-dependencies]
 futures-util = "0.3.31"
-reqwest = { version = "0.12.24", features = ["json"] }
+reqwest = { version = "0.13.2", features = ["json"] }
 tempfile = "3.23.0"
 tokio-tungstenite = "0.28.0"

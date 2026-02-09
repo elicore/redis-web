@@ -301,16 +301,24 @@ async fn process_request(
     response
 }
 
+/// Converts a Redis response value (RedisValue) into a JSON Value.
+/// This mapping accounts for Redis 0.32+ variant names and prepares for RESP3 types.
 pub fn redis_value_to_json(v: RedisValue) -> Value {
     match v {
         RedisValue::Nil => Value::Null,
         RedisValue::Int(i) => Value::Number(i.into()),
-        RedisValue::Data(bytes) => Value::String(String::from_utf8_lossy(&bytes).to_string()),
-        RedisValue::Bulk(items) => {
+        // BulkString replaces the older 'Data' variant in modern redis-rs.
+        RedisValue::BulkString(bytes) => Value::String(String::from_utf8_lossy(&bytes).to_string()),
+        // Array replaces the older 'Bulk' variant.
+        RedisValue::Array(items) => {
             Value::Array(items.into_iter().map(redis_value_to_json).collect())
         }
-        RedisValue::Status(s) => Value::String(s),
+        // SimpleString replaces 'Status'.
+        RedisValue::SimpleString(s) => Value::String(s),
         RedisValue::Okay => Value::String("OK".to_string()),
+        // Handle new RESP3 types (Map, Set, Attribute, etc.) by defaulting to Null for now.
+        // As Webdis evolves, these can be mapped to more specific JSON structures.
+        _ => Value::Null,
     }
 }
 

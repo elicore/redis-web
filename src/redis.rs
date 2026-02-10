@@ -169,6 +169,11 @@ pub fn create_pool(config: &AppConfig) -> Result<RedisPool, RedisCreatePoolError
 /// Creates a dedicated Redis client for Pub/Sub subscriptions.
 ///
 /// This is separate from the pool because Pub/Sub uses long-lived connections.
+/// Regular command traffic should continue using pooled multiplexed connections.
+///
+/// Configuration precedence matches the command pool setup:
+/// - `redis_socket` (UNIX socket) takes precedence over host/port URL settings.
+/// - TLS settings are applied only for TCP/TLS connections, not UNIX sockets.
 pub fn create_pubsub_client(config: &AppConfig) -> Result<redis::Client, redis::RedisError> {
     if let Some(socket) = config.redis_socket.as_deref() {
         let info = connection_info_for_unix_socket_redis(config, socket)?;

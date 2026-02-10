@@ -251,8 +251,39 @@ socket.onopen = () => {
 
 Pub/Sub is available both over HTTP and WebSockets:
 
-- HTTP: `GET /SUBSCRIBE/channel` streams messages as Server-Sent Events (SSE).
+- HTTP: `GET /SUBSCRIBE/channel` supports SSE (default), chunked JSON stream, and JSONP Comet mode.
 - WebSocket: send `["SUBSCRIBE", "channel"]` over `/.json` and receive messages as `{"message": "payload"}`.
+
+HTTP mode selection for `/SUBSCRIBE/channel`:
+
+- **SSE (default):** no JSONP query param and no explicit JSON `Accept` negotiation.
+- **Chunked JSON stream:** set `Accept: application/json`.
+- **Chunked JSONP Comet:** pass `?jsonp=myFn` (or `?callback=myFn`).
+
+Chunked JSON line format:
+
+```json
+{"SUBSCRIBE":["message","channel","payload"]}
+```
+
+Chunked JSONP line format:
+
+```js
+myFn({"SUBSCRIBE":["message","channel","payload"]});
+```
+
+Examples:
+
+```sh
+# SSE (default)
+curl -N http://127.0.0.1:7379/SUBSCRIBE/news
+
+# Chunked JSON stream
+curl -N -H "Accept: application/json" http://127.0.0.1:7379/SUBSCRIBE/news
+
+# JSONP Comet stream
+curl -N "http://127.0.0.1:7379/SUBSCRIBE/news?jsonp=myFn"
+```
 
 ## Configuration
 

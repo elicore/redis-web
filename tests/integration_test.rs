@@ -63,6 +63,46 @@ fn parse_jsonp_body(body: &str) -> (&str, serde_json::Value) {
     (callback, json)
 }
 
+/// Reads newline-delimited messages from a streaming HTTP response.
+///
+/// HTTP chunk boundaries are transport-level details and may split logical lines.
+/// This helper reassembles lines from streamed chunks until `expected_lines` are read
+/// or the per-chunk timeout is reached.
+async fn read_stream_lines(
+    mut response: reqwest::Response,
+    expected_lines: usize,
+    per_chunk_timeout: Duration,
+) -> Vec<String> {
+    let mut lines = Vec::with_capacity(expected_lines);
+    let mut buffer = String::new();
+
+    while lines.len() < expected_lines {
+        let chunk = tokio::time::timeout(per_chunk_timeout, response.chunk())
+            .await
+            .expect("timed out waiting for streamed chunk")
+            .expect("stream returned an error")
+            .expect("stream ended before expected number of lines");
+
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        while let Some(idx) = buffer.find('\n') {
+            let mut line = buffer[..idx].to_string();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+            if !line.is_empty() {
+                lines.push(line);
+                if lines.len() == expected_lines {
+                    break;
+                }
+            }
+            buffer = buffer[idx + 1..].to_string();
+        }
+    }
+
+    lines
+}
+
 /// A Redis server instance that listens on a UNIX-domain socket for the duration of a test.
 ///
 /// Integration tests use this to validate `redis_socket` end-to-end without relying on a
@@ -229,6 +269,16 @@ async fn redis_get_string(key: &str) -> Option<String> {
         .query_async(&mut conn)
         .await
         .expect("failed to GET from Redis")
+}
+
+async fn redis_publish(channel: &str, payload: &str) -> i64 {
+    let mut conn = redis_connect_local().await;
+    redis::cmd("PUBLISH")
+        .arg(channel)
+        .arg(payload)
+        .query_async(&mut conn)
+        .await
+        .expect("failed to PUBLISH to Redis")
 }
 
 async fn raw_http_get(port: u16, request_target: &str) -> (u16, String) {
@@ -1140,6 +1190,150 @@ async fn test_jsonp_ignored_on_raw() {
     assert!(
         !body.starts_with("myFn("),
         "Raw response must not be JSONP-wrapped"
+    );
+}
+
+/// `/SUBSCRIBE/*channel` supports chunked JSON streaming when JSON is explicitly negotiated.
+#[tokio::test]
+async fn test_subscribe_chunked_json_stream() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+    let channel = format!("comet_json_{}", server.port);
+
+    let response = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SUBSCRIBE/{}",
+            server.port, channel
+        ))
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .expect("failed to open SUBSCRIBE stream");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .expect("Content-Type header missing")
+        .to_str()
+        .expect("Invalid Content-Type header value");
+    assert!(
+        content_type.starts_with("application/json"),
+        "Expected application/json content type, got: {content_type}"
+    );
+
+    // Give the subscribe loop a moment to attach before publishing.
+    sleep(Duration::from_millis(150)).await;
+    let _ = redis_publish(&channel, "hello").await;
+    let _ = redis_publish(&channel, "world").await;
+
+    let lines = read_stream_lines(response, 2, Duration::from_secs(3)).await;
+    let parsed: Vec<serde_json::Value> = lines
+        .iter()
+        .map(|line| serde_json::from_str(line).expect("Expected valid JSON chunk"))
+        .collect();
+
+    let payloads: Vec<String> = parsed
+        .iter()
+        .map(|v| {
+            v["SUBSCRIBE"][2]
+                .as_str()
+                .expect("Expected SUBSCRIBE payload string")
+                .to_string()
+        })
+        .collect();
+    assert!(payloads.contains(&"hello".to_string()));
+    assert!(payloads.contains(&"world".to_string()));
+}
+
+/// `/SUBSCRIBE/*channel?jsonp=...` streams JSONP-wrapped Comet chunks.
+#[tokio::test]
+async fn test_subscribe_jsonp_comet_stream() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+    let channel = format!("comet_jsonp_{}", server.port);
+
+    let response = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SUBSCRIBE/{}?jsonp=myFn",
+            server.port, channel
+        ))
+        .send()
+        .await
+        .expect("failed to open JSONP SUBSCRIBE stream");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .expect("Content-Type header missing")
+        .to_str()
+        .expect("Invalid Content-Type header value");
+    assert!(
+        content_type.starts_with("application/javascript"),
+        "Expected application/javascript content type, got: {content_type}"
+    );
+
+    sleep(Duration::from_millis(150)).await;
+    let _ = redis_publish(&channel, "one").await;
+    let _ = redis_publish(&channel, "two").await;
+
+    let lines = read_stream_lines(response, 2, Duration::from_secs(3)).await;
+    let mut payloads = Vec::new();
+    for line in lines {
+        assert!(line.ends_with(';'), "Expected JSONP chunk to end with ';'");
+        let (callback, json) = parse_jsonp_body(line.trim_end_matches(';'));
+        assert_eq!(callback, "myFn");
+        payloads.push(
+            json["SUBSCRIBE"][2]
+                .as_str()
+                .expect("Expected SUBSCRIBE payload string")
+                .to_string(),
+        );
+    }
+
+    assert!(payloads.contains(&"one".to_string()));
+    assert!(payloads.contains(&"two".to_string()));
+}
+
+/// Default `/SUBSCRIBE/*channel` behavior remains SSE-compatible.
+#[tokio::test]
+async fn test_subscribe_sse_default_compatibility() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+    let channel = format!("sse_default_{}", server.port);
+
+    let response = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SUBSCRIBE/{}",
+            server.port, channel
+        ))
+        .send()
+        .await
+        .expect("failed to open SSE SUBSCRIBE stream");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .expect("Content-Type header missing")
+        .to_str()
+        .expect("Invalid Content-Type header value");
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "Expected text/event-stream content type, got: {content_type}"
+    );
+
+    sleep(Duration::from_millis(150)).await;
+    let expected_payload = "sse-payload";
+    let _ = redis_publish(&channel, expected_payload).await;
+
+    let lines = read_stream_lines(response, 1, Duration::from_secs(3)).await;
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains(&format!("data: {expected_payload}"))),
+        "Expected at least one SSE data line for payload {expected_payload}, got: {lines:?}"
     );
 }
 

@@ -82,6 +82,11 @@ pub async fn handle_default_root(
     .await
 }
 
+/// Shared application state injected into HTTP and WebSocket handlers.
+///
+/// `pool` serves regular Redis command traffic, while `pubsub` owns separate
+/// long-lived Redis subscription machinery. Keeping these separate avoids
+/// mixing blocking Pub/Sub loops with pooled command connections.
 pub struct AppState {
     pub pool: RedisPool,
     pub acl: Acl,

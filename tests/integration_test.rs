@@ -19,13 +19,24 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use base64::{engine::general_purpose, Engine as _};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use tempfile::NamedTempFile;
 use tempfile::TempDir;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+use redis::aio::MultiplexedConnection;
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
+
+fn pick_unused_local_port() -> u16 {
+    let listener =
+        std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind to random port");
+    listener.local_addr().unwrap().port()
+}
 
 /// Parses a JSONP response body in the form `<callback>(<json>)`.
 ///
@@ -200,6 +211,65 @@ fn ensure_webdis_debug_binary() {
     });
 }
 
+async fn redis_connect_local() -> MultiplexedConnection {
+    // Integration tests assume a locally reachable Redis at the default address,
+    // matching the default `TestServer` configuration.
+    let client =
+        redis::Client::open("redis://127.0.0.1:6379/").expect("failed to create Redis client");
+    client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("failed to connect to Redis at 127.0.0.1:6379")
+}
+
+async fn redis_get_string(key: &str) -> Option<String> {
+    let mut conn = redis_connect_local().await;
+    redis::cmd("GET")
+        .arg(key)
+        .query_async(&mut conn)
+        .await
+        .expect("failed to GET from Redis")
+}
+
+async fn raw_http_get(port: u16, request_target: &str) -> (u16, String) {
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .await
+        .expect("failed to connect to webdis test server");
+
+    let req = format!(
+        "GET {request_target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(req.as_bytes())
+        .await
+        .expect("failed to write HTTP request");
+
+    let mut buf = Vec::new();
+    stream
+        .read_to_end(&mut buf)
+        .await
+        .expect("failed to read HTTP response");
+
+    let text = String::from_utf8_lossy(&buf).to_string();
+    let mut header_body = text.splitn(2, "\r\n\r\n");
+    let headers = header_body
+        .next()
+        .expect("response missing headers section");
+    let body = header_body.next().unwrap_or("").to_string();
+
+    let status_line = headers
+        .lines()
+        .next()
+        .expect("response missing status line");
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or_else(|| panic!("could not parse status line {status_line:?}"));
+
+    (status, body)
+}
+
 /// Test server instance that manages a Webdis process for integration testing.
 ///
 /// This struct handles:
@@ -252,14 +322,6 @@ impl TestServer {
             .tempfile()
             .expect("Failed to create temp config file");
 
-        // Find a free port by binding to port 0, which lets the OS assign an available port
-        // We immediately drop the listener so Webdis can bind to it
-        let port = {
-            let listener =
-                std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind to random port");
-            listener.local_addr().unwrap().port()
-        };
-
         // Generate test configuration with ACL rules:
         // - DEBUG command is disabled by default (for ACL testing)
         // - DEBUG command is enabled when authenticated with "user:password"
@@ -269,7 +331,9 @@ impl TestServer {
             "redis_host": "127.0.0.1",
             "redis_port": 6379,
             "http_host": "127.0.0.1",
-            "http_port": port,
+            // The test harness will allocate a free port per spawned process to avoid
+            // racy "port already in use" failures when tests run in parallel.
+            "http_port": 0,
             "database": 0,
             "websockets": true,
             "daemonize": false,
@@ -296,40 +360,75 @@ impl TestServer {
     /// end-to-end (for example, `$VARNAME` environment variable expansion).
     async fn spawn_with_config_and_env(
         mut config_file: NamedTempFile,
-        config_content: serde_json::Value,
+        mut config_content: serde_json::Value,
         env: &[(&str, &str)],
     ) -> Self {
         ensure_webdis_debug_binary();
 
-        write!(config_file, "{}", config_content.to_string()).expect("Failed to write config");
-
-        let port = config_content
-            .get("http_port")
-            .and_then(|v| v.as_u64())
-            .and_then(|p| u16::try_from(p).ok())
-            .expect("config_content.http_port must be a valid u16");
-
         let config_path = config_file.path().to_str().unwrap().to_string();
 
-        // Spawn the Webdis process with the temporary config.
-        // Note: we inject per-process env vars via Command to avoid mutating
-        // the process-global test environment (tests can run in parallel).
-        let mut cmd = Command::new("target/debug/webdis");
-        cmd.arg(&config_path);
-        for (k, v) in env {
-            cmd.env(k, v);
-        }
-        let process = cmd.spawn().expect("Failed to start webdis");
+        // Starting a separate Webdis process is inherently racy when choosing a port ahead of
+        // time. When integration tests run in parallel, it is possible for another process to
+        // claim a port after we pick it but before Webdis binds.
+        //
+        // To keep the suite stable, we retry with a fresh port until the server is reachable.
+        for attempt in 0..20 {
+            let port = pick_unused_local_port();
+            if let Some(obj) = config_content.as_object_mut() {
+                obj.insert("http_port".to_string(), serde_json::Value::from(port));
+            }
 
-        // Give the server time to start up and bind to the port
-        // This is a simple approach; production code might poll the port instead
-        sleep(Duration::from_secs(2)).await;
+            // Rewrite the config file in-place.
+            let file = config_file.as_file_mut();
+            file.set_len(0).expect("Failed to truncate config file");
+            file.seek(SeekFrom::Start(0))
+                .expect("Failed to seek config file");
+            write!(config_file, "{}", config_content.to_string()).expect("Failed to write config");
 
-        Self {
-            process,
-            _config_file: config_file,
-            port,
+            // Spawn the Webdis process with the temporary config.
+            // Note: we inject per-process env vars via Command to avoid mutating
+            // the process-global test environment (tests can run in parallel).
+            let mut cmd = Command::new("target/debug/webdis");
+            cmd.arg(&config_path);
+            for (k, v) in env {
+                cmd.env(k, v);
+            }
+            let mut process = cmd.spawn().expect("Failed to start webdis");
+
+            // Poll for readiness by attempting to connect to the bound port.
+            let mut ready = false;
+            for _ in 0..40 {
+                if let Ok(Ok(_)) = tokio::time::timeout(
+                    Duration::from_millis(100),
+                    TcpStream::connect(("127.0.0.1", port)),
+                )
+                .await
+                {
+                    ready = true;
+                    break;
+                }
+
+                if let Ok(Some(_)) = process.try_wait() {
+                    break;
+                }
+                sleep(Duration::from_millis(50)).await;
+            }
+
+            if ready {
+                return Self {
+                    process,
+                    _config_file: config_file,
+                    port,
+                };
+            }
+
+            let _ = process.kill();
+            if attempt == 19 {
+                panic!("failed to start webdis after retries");
+            }
         }
+
+        unreachable!("retry loop returns or panics")
     }
 }
 
@@ -378,6 +477,116 @@ async fn test_basic_get_set() {
     assert!(resp.status().is_success());
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["GET"], "test_value");
+}
+
+/// Percent-decoding parity: `%2f` is decoded into `/` *inside* an argument, never as a separator.
+#[tokio::test]
+async fn test_percent_decoding_slash_in_key_roundtrip() {
+    let server = TestServer::new().await;
+
+    let key = format!("percent_slash_key_{}/b", server.port);
+
+    let (status, body) = raw_http_get(
+        server.port,
+        &format!("/SET/percent_slash_key_{}%2Fb/value", server.port),
+    )
+    .await;
+    assert_eq!(status, 200, "Expected SET to succeed, got: {body:?}");
+    let json: serde_json::Value =
+        serde_json::from_str(&body).expect("Expected JSON body from SET");
+    assert_eq!(json["SET"], "OK");
+
+    let (status, body) = raw_http_get(
+        server.port,
+        &format!("/GET/percent_slash_key_{}%2Fb", server.port),
+    )
+    .await;
+    assert_eq!(status, 200, "Expected GET to succeed, got: {body:?}");
+    let json: serde_json::Value =
+        serde_json::from_str(&body).expect("Expected JSON body from GET");
+    assert_eq!(json["GET"], "value");
+
+    // Confirm the key stored in Redis is literally `.../b`, not `...%2Fb`.
+    let direct = redis_get_string(&key).await;
+    assert_eq!(direct.as_deref(), Some("value"));
+}
+
+/// Percent-decoding parity: `%2e` is decoded into `.` inside an argument without triggering
+/// output-format parsing.
+#[tokio::test]
+async fn test_percent_decoding_dot_does_not_trigger_format_suffix() {
+    let server = TestServer::new().await;
+
+    // This path contains no literal dot. If the server incorrectly performs `.ext` parsing
+    // after decoding, it would interpret the decoded `.raw` as a suffix and change output mode.
+    let encoded_key = format!("percent_dot_key_{}%2Eraw", server.port);
+    let decoded_key = format!("percent_dot_key_{}.raw", server.port);
+
+    let (status, body) =
+        raw_http_get(server.port, &format!("/SET/{}/world", encoded_key)).await;
+    assert_eq!(status, 200, "Expected SET to succeed, got: {body:?}");
+
+    let (status, body) = raw_http_get(server.port, &format!("/GET/{}", encoded_key)).await;
+    assert_eq!(status, 200, "Expected GET to succeed, got: {body:?}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&body).expect("Expected JSON output (not .raw RESP)");
+    assert_eq!(json["GET"], "world");
+
+    // Confirm the decoded key exists in Redis under the literal dotted name.
+    let direct = redis_get_string(&decoded_key).await;
+    assert_eq!(direct.as_deref(), Some("world"));
+}
+
+/// Explicit `.raw` suffix still works when the key contains an encoded dot.
+#[tokio::test]
+async fn test_percent_decoding_dot_with_raw_suffix_still_selects_raw() {
+    let server = TestServer::new().await;
+
+    let encoded_key = format!("percent_dot_key_{}%2Eb", server.port);
+    let decoded_key = format!("percent_dot_key_{}.b", server.port);
+
+    let (status, body) =
+        raw_http_get(server.port, &format!("/SET/{}/hello", encoded_key)).await;
+    assert_eq!(status, 200, "Expected SET to succeed, got: {body:?}");
+
+    let (status, body) = raw_http_get(server.port, &format!("/GET/{}.raw", encoded_key)).await;
+    assert_eq!(status, 200, "Expected GET to succeed, got: {body:?}");
+    assert_eq!(body, "$5\r\nhello\r\n");
+
+    let direct = redis_get_string(&decoded_key).await;
+    assert_eq!(direct.as_deref(), Some("hello"));
+}
+
+/// Invalid percent-encodings are preserved (left untouched).
+///
+/// We send a raw HTTP request (bypassing client-side URL validation) so the server can
+/// observe `%` sequences that are not valid percent-escapes.
+#[tokio::test]
+async fn test_percent_decoding_invalid_encodings_left_untouched() {
+    let server = TestServer::new().await;
+
+    let key = format!("percent_invalid_{}%2Xkey", server.port);
+
+    // SET via raw HTTP to allow the invalid `%2X` sequence.
+    let (status, body) = raw_http_get(
+        server.port,
+        &format!("/SET/{}/ok", key),
+    )
+    .await;
+    assert_eq!(status, 200, "Expected SET to succeed, got body: {body:?}");
+
+    // GET via raw HTTP as well.
+    let (status, body) = raw_http_get(server.port, &format!("/GET/{key}")).await;
+    assert_eq!(status, 200, "Expected GET to succeed, got body: {body:?}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&body).expect("Expected JSON body from GET");
+    assert_eq!(json["GET"], "ok");
+
+    // Confirm the literal key was stored in Redis unchanged (contains `%2X`).
+    let direct = redis_get_string(&key).await;
+    assert_eq!(direct.as_deref(), Some("ok"));
 }
 
 /// Connects to Redis over a UNIX-domain socket when `redis_socket` is configured.

@@ -106,6 +106,27 @@ Requests encode Redis commands in the URI:
 
 The optional `.ext` suffix selects the output format (see below). Arguments should be URL-encoded as usual.
 
+#### URL percent-encoding semantics (`%2f`, `%2e`)
+
+Webdis splits command arguments on **literal** `/` characters in the request path. To support keys/arguments
+that contain `/` or `.`, Webdis applies percent-decoding **per path segment** after splitting:
+
+- `%2F` / `%2f` decodes to `/` *inside* an argument, never as a separator.
+- `%2E` / `%2e` decodes to `.` *inside* an argument without triggering output-format suffix parsing.
+- Output-format selection via `.ext` is based only on the **unescaped** representation (a literal `.` in the URL).
+- Invalid percent-encodings are left unchanged.
+
+Examples:
+
+- Key containing `/`:
+  - `GET /SET/a%2Fb/value` sets key `a/b`
+  - `GET /GET/a%2Fb` reads key `a/b`
+- Key containing `.` without selecting a format:
+  - `GET /SET/a%2Eb/world` sets key `a.b`
+  - `GET /GET/a%2Eb%2Eraw` reads key `a.b.raw` **as JSON** (no `.raw` suffix was present in the URL)
+- Explicit suffix still works:
+  - `GET /GET/a%2Eb.raw` reads key `a.b` in raw RESP mode
+
 ### HTTP status codes
 
 - `200 OK` – command executed successfully.

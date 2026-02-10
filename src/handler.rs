@@ -5,9 +5,9 @@ use crate::format::{
 use crate::redis::RedisPool;
 use crate::resp; // Added resp module
 use axum::body::Body; // Added Body
-use axum::extract::ConnectInfo;
+use axum::extract::{ConnectInfo, OriginalUri};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -18,6 +18,45 @@ use std::sync::Arc;
 
 use crate::pubsub::PubSubManager;
 use sha1::{Digest, Sha1};
+
+/// Percent-decodes a single URL *path segment*.
+///
+/// Webdis treats `/` as an argument separator and `.` as an output-format suffix delimiter.
+/// To preserve those semantics while supporting keys that contain `/` or `.`, we:
+/// - split the wildcard path on literal `/` first (so `%2f` never acts as a separator), then
+/// - percent-decode each segment independently (so `%2f` becomes `/` *inside* an argument).
+///
+/// Invalid percent-encodings are left untouched (e.g. `%2X` stays `%2X`).
+///
+/// Note: The output is a UTF-8 `String`; bytes that are not valid UTF-8 will be lossily
+/// converted using the standard replacement character. This matches how other string
+/// arguments are handled throughout the HTTP surface.
+fn percent_decode_segment_lossy(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 < bytes.len() {
+                let hi = bytes[i + 1];
+                let lo = bytes[i + 2];
+                let hex_hi = (hi as char).to_digit(16);
+                let hex_lo = (lo as char).to_digit(16);
+                if let (Some(hi), Some(lo)) = (hex_hi, hex_lo) {
+                    out.push(((hi << 4) | lo) as u8);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+
+        out.push(bytes[i]);
+        i += 1;
+    }
+
+    String::from_utf8_lossy(&out).into_owned()
+}
 
 pub async fn handle_default_root(
     State(state): State<Arc<AppState>>,
@@ -68,7 +107,7 @@ use axum::extract::Query;
 use std::collections::HashMap;
 
 pub async fn handle_post(
-    Path(command): Path<String>,
+    OriginalUri(uri): OriginalUri,
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -79,6 +118,10 @@ pub async fn handle_post(
         .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
+    // Use the raw request URI path (percent-encoded) to preserve `%2f` and `%2e` semantics.
+    // `Path<String>` would decode many percent-escapes before we can apply Webdis-compatible
+    // segment decoding rules.
+    let command = uri.path().trim_start_matches('/').to_string();
     process_request(
         command,
         params,
@@ -92,7 +135,7 @@ pub async fn handle_post(
 }
 
 pub async fn handle_put(
-    Path(command): Path<String>,
+    OriginalUri(uri): OriginalUri,
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -103,6 +146,7 @@ pub async fn handle_put(
         .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
+    let command = uri.path().trim_start_matches('/').to_string();
     process_request(
         command,
         params,
@@ -116,7 +160,7 @@ pub async fn handle_put(
 }
 
 pub async fn handle_get(
-    Path(command): Path<String>,
+    OriginalUri(uri): OriginalUri,
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -126,6 +170,7 @@ pub async fn handle_get(
         .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
+    let command = uri.path().trim_start_matches('/').to_string();
     process_request(command, params, None, state, addr, auth_header, headers).await
 }
 
@@ -151,14 +196,19 @@ async fn process_request(
         );
     }
 
-    let mut cmd_name = parts[0];
-    let mut args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+    // Start from raw, *un-decoded* segments (Axum intentionally does not decode `%2f` in paths).
+    // We will percent-decode each segment after:
+    // - splitting on `/` (so `%2f` is an in-argument `/`, never a separator), and
+    // - extracting any output-format suffix from literal `.` in the URL (so `%2e` never selects
+    //   an output format/content-type).
+    let mut raw_cmd_name = parts[0].to_string();
+    let mut raw_args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
 
     // Parse an optional suffix from the *final path segment* (or the command name when there
     // are no args). In Webdis, `/COMMAND/.../argN.ext` selects the output format and/or default
     // content type, while the `argN` used for Redis is `argN` without the suffix.
     let mut ext: Option<String> = None;
-    if let Some(last_arg) = args.last_mut() {
+    if let Some(last_arg) = raw_args.last_mut() {
         if let Some(idx) = last_arg.rfind('.') {
             let candidate = last_arg[idx + 1..].to_ascii_lowercase();
             let known = OutputFormat::from_extension(candidate.as_str()).is_some()
@@ -168,15 +218,24 @@ async fn process_request(
                 last_arg.truncate(idx);
             }
         }
-    } else if let Some(idx) = cmd_name.rfind('.') {
-        let candidate = cmd_name[idx + 1..].to_ascii_lowercase();
+    } else if let Some(idx) = raw_cmd_name.rfind('.') {
+        let candidate = raw_cmd_name[idx + 1..].to_ascii_lowercase();
         let known = OutputFormat::from_extension(candidate.as_str()).is_some()
             || content_type_for_extension(candidate.as_str()).is_some();
         if known {
             ext = Some(candidate);
-            cmd_name = &cmd_name[..idx];
+            raw_cmd_name.truncate(idx);
         }
     }
+
+    // Percent-decode segments after suffix extraction. This ensures:
+    // - `%2f` and `%2e` become literal `/` and `.` inside args, but
+    // - encoded `.` does not influence `.ext` output-format selection.
+    let cmd_name = percent_decode_segment_lossy(&raw_cmd_name);
+    let args: Vec<String> = raw_args
+        .into_iter()
+        .map(|s| percent_decode_segment_lossy(&s))
+        .collect();
 
     // The output format controls the response body. `?type=<mime>` is *header-only*.
     let mut format = OutputFormat::Json;
@@ -203,7 +262,10 @@ async fn process_request(
     let body_arg = body.as_deref().filter(|b| !b.is_empty());
 
     // Check ACL
-    if !state.acl.check(addr.ip(), cmd_name, auth_header.as_deref()) {
+    if !state
+        .acl
+        .check(addr.ip(), cmd_name.as_str(), auth_header.as_deref())
+    {
         return json_value_response(
             StatusCode::FORBIDDEN,
             json!({"error": "Forbidden"}),
@@ -223,7 +285,7 @@ async fn process_request(
         }
     };
 
-    let mut redis_cmd = cmd(cmd_name);
+    let mut redis_cmd = cmd(cmd_name.as_str());
     for arg in &args {
         redis_cmd.arg(arg);
     }
@@ -344,7 +406,7 @@ async fn process_request(
                 };
 
                 // Note: ETag must vary by JSONP callback, since the response body changes.
-                let mut resp = format.format_response(cmd_name, json_val, jsonp_callback);
+                let mut resp = format.format_response(cmd_name.as_str(), json_val, jsonp_callback);
                 if let Some(tag) = etag {
                     resp.headers_mut()
                         .insert(header::ETAG, tag.parse().unwrap());

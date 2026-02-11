@@ -101,10 +101,29 @@ curl -XPOST -d 'GET/hello' http://127.0.0.1:7379/
 Requests encode Redis commands in the URI:
 
 - `GET /COMMAND/arg0/.../argN[.ext]`
+- `GET /<db>/COMMAND/arg0/.../argN[.ext]` to target a specific Redis logical database for that request
 - `POST /` with `COMMAND/arg0/.../argN` in the HTTP body
 - `PUT /COMMAND/arg0/.../argN-1` with `argN` in the HTTP body
 
 The optional `.ext` suffix selects the output format (see below). Arguments should be URL-encoded as usual.
+
+#### Per-request database selection
+
+When the first path segment is a decimal integer and the second is a command, Webdis routes that
+request to the specified Redis logical database:
+
+- `/7/GET/key` runs `GET key` against database `7`.
+- `/GET/key` (no prefix) runs against the configured default `database`.
+
+This implementation uses **lazy per-database connection pools**:
+
+- The default DB pool is created at startup.
+- A non-default DB pool is created only when first requested.
+- Pools are then reused per DB, which avoids per-request `SELECT` overhead and prevents DB bleed
+  across pooled connections.
+
+If the DB prefix is numeric but out of range (supported range `0..=255`), Webdis returns
+`400 Bad Request`.
 
 #### URL percent-encoding semantics (`%2f`, `%2e`)
 

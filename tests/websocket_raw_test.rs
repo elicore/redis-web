@@ -24,8 +24,11 @@ async fn setup_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
     let pubsub_client = redis::create_pubsub_client(&config).unwrap();
     let pubsub_manager = pubsub::PubSubManager::new(pubsub_client);
 
+    let default_database = config.database;
+    let redis_pools = redis::DatabasePoolRegistry::new(config.clone(), pool);
     let app_state = Arc::new(handler::AppState {
-        pool,
+        redis_pools,
+        default_database,
         acl: acl::Acl::new(config.acl.clone()),
         pubsub: pubsub_manager,
     });

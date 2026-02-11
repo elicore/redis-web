@@ -1,5 +1,5 @@
-use webdis::{acl, config, handler, pubsub, redis, websocket};
 use webdis::logging::FsyncWriter;
+use webdis::{acl, config, handler, pubsub, redis, websocket};
 
 use axum::{
     routing::{get, options},
@@ -67,35 +67,36 @@ fn main() {
         4 => tracing::Level::DEBUG,
         _ => tracing::Level::TRACE,
     };
-    let file_writer: Option<Box<dyn std::io::Write + Send + 'static>> = if let Some(logfile) = &config.logfile {
-        let path = std::path::Path::new(logfile);
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    eprintln!("Failed to create log directory {:?}: {}", parent, e);
-                    process::exit(1);
+    let file_writer: Option<Box<dyn std::io::Write + Send + 'static>> =
+        if let Some(logfile) = &config.logfile {
+            let path = std::path::Path::new(logfile);
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    if let Err(e) = fs::create_dir_all(parent) {
+                        eprintln!("Failed to create log directory {:?}: {}", parent, e);
+                        process::exit(1);
+                    }
                 }
             }
-        }
 
-        let file = match OpenOptions::new().create(true).append(true).open(path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Failed to open logfile {}: {}", logfile, e);
-                process::exit(1);
-            }
-        };
+            let file = match OpenOptions::new().create(true).append(true).open(path) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("Failed to open logfile {}: {}", logfile, e);
+                    process::exit(1);
+                }
+            };
 
-        let writer: Box<dyn std::io::Write + Send + 'static> = if config.log_fsync.is_some() {
-            Box::new(FsyncWriter::new(file, config.log_fsync.as_ref()))
+            let writer: Box<dyn std::io::Write + Send + 'static> = if config.log_fsync.is_some() {
+                Box::new(FsyncWriter::new(file, config.log_fsync.as_ref()))
+            } else {
+                Box::new(file)
+            };
+
+            Some(writer)
         } else {
-            Box::new(file)
+            None
         };
-
-        Some(writer)
-    } else {
-        None
-    };
 
     let (non_blocking, _guard) = if let Some(writer) = file_writer {
         let (non_blocking, guard) = tracing_appender::non_blocking(writer);
@@ -186,11 +187,14 @@ async fn async_main(config: Config) {
         }
     };
     let pubsub_manager = pubsub::PubSubManager::new(pubsub_client);
+    let default_database = config.database;
+    let redis_pools = redis::DatabasePoolRegistry::new(config.clone(), pool);
 
     // State management: shared pool, ACLs, and the Pub/Sub manager.
     // The Pub/Sub manager is separate from the pool as it requires dedicated long-lived connections.
     let app_state = Arc::new(AppState {
-        pool,
+        redis_pools,
+        default_database,
         acl: acl::Acl::new(config.acl),
         pubsub: pubsub_manager,
     });

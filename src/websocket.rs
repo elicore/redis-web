@@ -85,7 +85,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     continue;
                 }
 
-                let mut conn = match state.pool.get().await {
+                let pool = match state
+                    .redis_pools
+                    .pool_for_database(state.default_database)
+                    .await
+                {
+                    Ok(pool) => pool,
+                    Err(_) => {
+                        let _ = tx
+                            .send(Message::Text(
+                                serde_json::json!({"error": "Service Unavailable"})
+                                    .to_string()
+                                    .into(),
+                            ))
+                            .await;
+                        continue;
+                    }
+                };
+
+                let mut conn = match pool.get().await {
                     Ok(conn) => conn,
                     Err(_) => {
                         let _ = tx
@@ -173,8 +191,27 @@ async fn handle_socket_raw(socket: WebSocket, state: Arc<AppState>) {
                         continue;
                     }
 
-                    // Get a connection from the pool
-                    let mut conn = match state.pool.get().await {
+                    // Get a connection from the default DB pool.
+                    let pool = match state
+                        .redis_pools
+                        .pool_for_database(state.default_database)
+                        .await
+                    {
+                        Ok(pool) => pool,
+                        Err(e) => {
+                            let err_resp = format!("-ERR {}\r\n", e);
+                            if sender
+                                .send(Message::Binary(err_resp.into_bytes().into()))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            continue;
+                        }
+                    };
+
+                    let mut conn = match pool.get().await {
                         Ok(conn) => conn,
                         Err(e) => {
                             let err_resp = format!("-ERR {}\r\n", e);

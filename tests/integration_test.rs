@@ -262,6 +262,19 @@ async fn redis_connect_local() -> MultiplexedConnection {
         .expect("failed to connect to Redis at 127.0.0.1:6379")
 }
 
+/// Opens a direct Redis connection to a specific logical database.
+///
+/// This bypasses Webdis to validate that DB-prefixed HTTP requests hit the
+/// intended database and do not leak state across requests.
+async fn redis_connect_local_db(database: u8) -> MultiplexedConnection {
+    let client = redis::Client::open(format!("redis://127.0.0.1:6379/{database}"))
+        .expect("failed to create Redis client");
+    client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("failed to connect to Redis")
+}
+
 async fn redis_get_string(key: &str) -> Option<String> {
     let mut conn = redis_connect_local().await;
     redis::cmd("GET")
@@ -529,6 +542,135 @@ async fn test_basic_get_set() {
     assert_eq!(body["GET"], "test_value");
 }
 
+/// Supports DB-prefixed paths so the same key can store distinct values per DB.
+#[tokio::test]
+async fn test_database_prefix_separate_values_per_db() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+    let key = format!("db_prefix_key_{}", server.port);
+
+    // Cleanup any stale values from previous runs.
+    let mut db0 = redis_connect_local_db(0).await;
+    let mut db7 = redis_connect_local_db(7).await;
+    let _: i64 = redis::cmd("DEL")
+        .arg(&key)
+        .query_async(&mut db0)
+        .await
+        .expect("failed to cleanup DB 0 key");
+    let _: i64 = redis::cmd("DEL")
+        .arg(&key)
+        .query_async(&mut db7)
+        .await
+        .expect("failed to cleanup DB 7 key");
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SET/{}/value0",
+            server.port, key
+        ))
+        .send()
+        .await
+        .expect("Failed to write DB 0 value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/7/SET/{}/value7",
+            server.port, key
+        ))
+        .send()
+        .await
+        .expect("Failed to write DB 7 value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/GET/{}", server.port, key))
+        .send()
+        .await
+        .expect("Failed to read default DB value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["GET"], "value0");
+
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/7/GET/{}", server.port, key))
+        .send()
+        .await
+        .expect("Failed to read DB 7 value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["GET"], "value7");
+}
+
+/// Using a DB-prefixed request must not affect subsequent default-DB requests.
+#[tokio::test]
+async fn test_database_prefix_no_bleed_between_requests() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+    let key = format!("db_prefix_bleed_key_{}", server.port);
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/SET/{}/default_db_value",
+            server.port, key
+        ))
+        .send()
+        .await
+        .expect("Failed to write default DB value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+    let resp = client
+        .get(&format!(
+            "http://127.0.0.1:{}/7/SET/{}/db7_value",
+            server.port, key
+        ))
+        .send()
+        .await
+        .expect("Failed to write DB 7 value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/7/GET/{}", server.port, key))
+        .send()
+        .await
+        .expect("Failed to read DB 7 value");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["GET"], "db7_value");
+
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/GET/{}", server.port, key))
+        .send()
+        .await
+        .expect("Failed to read default DB value after DB 7 request");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["GET"], "default_db_value");
+}
+
+/// Numeric DB prefixes outside the supported range return a 400 error.
+#[tokio::test]
+async fn test_database_prefix_invalid_db_index_returns_400() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+
+    let resp = client
+        .get(&format!("http://127.0.0.1:{}/9999/GET/key", server.port))
+        .send()
+        .await
+        .expect("Failed to send invalid DB prefix request");
+
+    assert_eq!(resp.status(), reqwest::StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert!(
+        body["error"]
+            .as_str()
+            .map(|s| s.contains("Invalid database index"))
+            .unwrap_or(false),
+        "Expected clear invalid DB index error, got: {body:?}"
+    );
+}
+
 /// Percent-decoding parity: `%2f` is decoded into `/` *inside* an argument, never as a separator.
 #[tokio::test]
 async fn test_percent_decoding_slash_in_key_roundtrip() {
@@ -542,8 +684,7 @@ async fn test_percent_decoding_slash_in_key_roundtrip() {
     )
     .await;
     assert_eq!(status, 200, "Expected SET to succeed, got: {body:?}");
-    let json: serde_json::Value =
-        serde_json::from_str(&body).expect("Expected JSON body from SET");
+    let json: serde_json::Value = serde_json::from_str(&body).expect("Expected JSON body from SET");
     assert_eq!(json["SET"], "OK");
 
     let (status, body) = raw_http_get(
@@ -552,8 +693,7 @@ async fn test_percent_decoding_slash_in_key_roundtrip() {
     )
     .await;
     assert_eq!(status, 200, "Expected GET to succeed, got: {body:?}");
-    let json: serde_json::Value =
-        serde_json::from_str(&body).expect("Expected JSON body from GET");
+    let json: serde_json::Value = serde_json::from_str(&body).expect("Expected JSON body from GET");
     assert_eq!(json["GET"], "value");
 
     // Confirm the key stored in Redis is literally `.../b`, not `...%2Fb`.
@@ -572,8 +712,7 @@ async fn test_percent_decoding_dot_does_not_trigger_format_suffix() {
     let encoded_key = format!("percent_dot_key_{}%2Eraw", server.port);
     let decoded_key = format!("percent_dot_key_{}.raw", server.port);
 
-    let (status, body) =
-        raw_http_get(server.port, &format!("/SET/{}/world", encoded_key)).await;
+    let (status, body) = raw_http_get(server.port, &format!("/SET/{}/world", encoded_key)).await;
     assert_eq!(status, 200, "Expected SET to succeed, got: {body:?}");
 
     let (status, body) = raw_http_get(server.port, &format!("/GET/{}", encoded_key)).await;
@@ -596,8 +735,7 @@ async fn test_percent_decoding_dot_with_raw_suffix_still_selects_raw() {
     let encoded_key = format!("percent_dot_key_{}%2Eb", server.port);
     let decoded_key = format!("percent_dot_key_{}.b", server.port);
 
-    let (status, body) =
-        raw_http_get(server.port, &format!("/SET/{}/hello", encoded_key)).await;
+    let (status, body) = raw_http_get(server.port, &format!("/SET/{}/hello", encoded_key)).await;
     assert_eq!(status, 200, "Expected SET to succeed, got: {body:?}");
 
     let (status, body) = raw_http_get(server.port, &format!("/GET/{}.raw", encoded_key)).await;
@@ -619,19 +757,14 @@ async fn test_percent_decoding_invalid_encodings_left_untouched() {
     let key = format!("percent_invalid_{}%2Xkey", server.port);
 
     // SET via raw HTTP to allow the invalid `%2X` sequence.
-    let (status, body) = raw_http_get(
-        server.port,
-        &format!("/SET/{}/ok", key),
-    )
-    .await;
+    let (status, body) = raw_http_get(server.port, &format!("/SET/{}/ok", key)).await;
     assert_eq!(status, 200, "Expected SET to succeed, got body: {body:?}");
 
     // GET via raw HTTP as well.
     let (status, body) = raw_http_get(server.port, &format!("/GET/{key}")).await;
     assert_eq!(status, 200, "Expected GET to succeed, got body: {body:?}");
 
-    let json: serde_json::Value =
-        serde_json::from_str(&body).expect("Expected JSON body from GET");
+    let json: serde_json::Value = serde_json::from_str(&body).expect("Expected JSON body from GET");
     assert_eq!(json["GET"], "ok");
 
     // Confirm the literal key was stored in Redis unchanged (contains `%2X`).

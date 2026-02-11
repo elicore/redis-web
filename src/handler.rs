@@ -2,7 +2,7 @@ use crate::acl::Acl;
 use crate::format::{
     content_type_for_extension, json_value_response, select_jsonp_callback, OutputFormat,
 };
-use crate::redis::RedisPool;
+use crate::redis::DatabasePoolRegistry;
 use crate::resp; // Added resp module
 use axum::body::Body; // Added Body
 use axum::extract::{ConnectInfo, OriginalUri};
@@ -84,11 +84,14 @@ pub async fn handle_default_root(
 
 /// Shared application state injected into HTTP and WebSocket handlers.
 ///
-/// `pool` serves regular Redis command traffic, while `pubsub` owns separate
+/// `redis_pools` serves regular Redis command traffic, while `pubsub` owns separate
 /// long-lived Redis subscription machinery. Keeping these separate avoids
 /// mixing blocking Pub/Sub loops with pooled command connections.
 pub struct AppState {
-    pub pool: RedisPool,
+    /// Lazily created Redis pools keyed by logical database index.
+    pub redis_pools: DatabasePoolRegistry,
+    /// Default logical database configured in `webdis.json`.
+    pub default_database: u8,
     pub acl: Acl,
     pub pubsub: PubSubManager,
 }
@@ -97,6 +100,7 @@ use axum::body::Bytes;
 // use axum::body::Bytes; // Already imported above
 // use axum::http::HeaderMap; // Already imported above
 
+/// Handles CORS preflight requests for all command routes.
 pub async fn handle_options() -> Response {
     let mut headers = HeaderMap::new();
     headers.insert("Access-Control-Allow-Origin", "*".parse().unwrap());
@@ -111,6 +115,8 @@ pub async fn handle_options() -> Response {
 use axum::extract::Query;
 use std::collections::HashMap;
 
+/// Handles `POST` command requests where the URI encodes command parts and the
+/// HTTP body is appended as the final Redis argument.
 pub async fn handle_post(
     OriginalUri(uri): OriginalUri,
     Query(params): Query<HashMap<String, String>>,
@@ -139,6 +145,8 @@ pub async fn handle_post(
     .await
 }
 
+/// Handles `PUT` command requests where the URI encodes command parts and the
+/// HTTP body is appended as the final Redis argument.
 pub async fn handle_put(
     OriginalUri(uri): OriginalUri,
     Query(params): Query<HashMap<String, String>>,
@@ -164,6 +172,8 @@ pub async fn handle_put(
     .await
 }
 
+/// Handles `GET` command requests where the full Redis command is encoded in
+/// the request path.
 pub async fn handle_get(
     OriginalUri(uri): OriginalUri,
     Query(params): Query<HashMap<String, String>>,
@@ -179,6 +189,13 @@ pub async fn handle_get(
     process_request(command, params, None, state, addr, auth_header, headers).await
 }
 
+/// Normalizes an HTTP request into a Redis command and emits a formatted HTTP response.
+///
+/// Non-trivial behavior in this path includes:
+/// - optional `/<db>/` prefix parsing with strict numeric range validation,
+/// - per-request DB pool selection without connection state bleed,
+/// - extension-driven response formatting and content type negotiation,
+/// - ACL checks and conditional ETag handling.
 async fn process_request(
     command: String,
     params: HashMap<String, String>,
@@ -201,13 +218,50 @@ async fn process_request(
         );
     }
 
+    fn is_decimal_segment(segment: &str) -> bool {
+        !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit())
+    }
+
+    let mut db_override: Option<u8> = None;
+    let mut command_segment_index = 0usize;
+    if is_decimal_segment(parts[0]) {
+        let parsed_db = match parts[0].parse::<u8>() {
+            Ok(db) => db,
+            Err(_) => {
+                let jsonp = select_jsonp_callback(&params);
+                return json_value_response(
+                    StatusCode::BAD_REQUEST,
+                    json!({
+                        "error": "Invalid database index in path. Expected 0-255 for /<db>/<COMMAND>/..."
+                    }),
+                    jsonp,
+                );
+            }
+        };
+
+        if parts.len() < 2 || parts[1].is_empty() {
+            let jsonp = select_jsonp_callback(&params);
+            return json_value_response(
+                StatusCode::BAD_REQUEST,
+                json!({"error": "Missing command after database prefix"}),
+                jsonp,
+            );
+        }
+
+        db_override = Some(parsed_db);
+        command_segment_index = 1;
+    }
+
     // Start from raw, *un-decoded* segments (Axum intentionally does not decode `%2f` in paths).
     // We will percent-decode each segment after:
     // - splitting on `/` (so `%2f` is an in-argument `/`, never a separator), and
     // - extracting any output-format suffix from literal `.` in the URL (so `%2e` never selects
     //   an output format/content-type).
-    let mut raw_cmd_name = parts[0].to_string();
-    let mut raw_args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+    let mut raw_cmd_name = parts[command_segment_index].to_string();
+    let mut raw_args: Vec<String> = parts[command_segment_index + 1..]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     // Parse an optional suffix from the *final path segment* (or the command name when there
     // are no args). In Webdis, `/COMMAND/.../argN.ext` selects the output format and/or default
@@ -278,7 +332,19 @@ async fn process_request(
         );
     }
 
-    let mut conn = match state.pool.get().await {
+    let target_database = db_override.unwrap_or(state.default_database);
+    let pool = match state.redis_pools.pool_for_database(target_database).await {
+        Ok(pool) => pool,
+        Err(e) => {
+            return json_value_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({"error": e.to_string()}),
+                jsonp_callback,
+            );
+        }
+    };
+
+    let mut conn = match pool.get().await {
         Ok(conn) => conn,
         Err(e) => {
             // Preserve status codes, but wrap the JSON error payload when JSONP is requested.

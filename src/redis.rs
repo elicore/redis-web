@@ -33,8 +33,10 @@ use redis::{
     ConnectionAddr, ConnectionInfo, ErrorKind, IntoConnectionInfo, Pipeline, ProtocolVersion,
     RedisConnectionInfo, RedisFuture, Value,
 };
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -135,6 +137,50 @@ impl ConnectionLike for PooledConnection {
 pub type RedisPool = Pool<WebdisRedisManager, PooledConnection>;
 pub type RedisCreatePoolError = CreatePoolError<redis::RedisError>;
 
+/// Lazily creates and caches Redis pools per logical database index.
+///
+/// The default database pool is reused as-is, and non-default pools are created
+/// on first use. This avoids per-request `SELECT` roundtrips and guarantees
+/// that pooled connections are always returned to the same logical DB.
+pub struct DatabasePoolRegistry {
+    base_config: AppConfig,
+    default_database: u8,
+    default_pool: RedisPool,
+    pools_by_database: RwLock<HashMap<u8, RedisPool>>,
+}
+
+impl DatabasePoolRegistry {
+    /// Builds a new registry with a pre-created pool for the default DB.
+    pub fn new(base_config: AppConfig, default_pool: RedisPool) -> Self {
+        let default_database = base_config.database;
+        Self {
+            base_config,
+            default_database,
+            default_pool,
+            pools_by_database: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Returns a pool bound to `database`, creating one lazily if needed.
+    pub async fn pool_for_database(&self, database: u8) -> Result<RedisPool, RedisCreatePoolError> {
+        if database == self.default_database {
+            return Ok(self.default_pool.clone());
+        }
+
+        {
+            let pools = self.pools_by_database.read().await;
+            if let Some(pool) = pools.get(&database) {
+                return Ok(pool.clone());
+            }
+        }
+
+        let new_pool = create_pool_for_database(&self.base_config, database)?;
+        let mut pools = self.pools_by_database.write().await;
+        let pooled = pools.entry(database).or_insert_with(|| new_pool.clone());
+        Ok(pooled.clone())
+    }
+}
+
 /// Creates a Redis connection pool configured for the current Webdis config.
 ///
 /// # Precedence
@@ -164,6 +210,19 @@ pub fn create_pool(config: &AppConfig) -> Result<RedisPool, RedisCreatePoolError
         .map_err(CreatePoolError::Build)?;
 
     Ok(pool)
+}
+
+/// Creates a Redis pool bound to a specific logical database index.
+///
+/// This is used by the per-request DB-prefix routing path to lazily create
+/// dedicated pools for non-default databases.
+pub fn create_pool_for_database(
+    config: &AppConfig,
+    database: u8,
+) -> Result<RedisPool, RedisCreatePoolError> {
+    let mut db_config = config.clone();
+    db_config.database = database;
+    create_pool(&db_config)
 }
 
 /// Creates a dedicated Redis client for Pub/Sub subscriptions.

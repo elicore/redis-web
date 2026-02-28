@@ -392,4 +392,14 @@ Integration tests spawn a temporary configuration per case, so they can run in p
 3. Run the full suite (including integration) when you can bind local ports.
 4. Use `webdis --write-default-config` whenever you introduce new options to keep the sample config and schema aligned.
 
+## Library embedding
+
+Webdis can be embedded as a library in another Axum/Tokio process.
+
+- Use `webdis::server::build_router(&config)` for default parser + Redis executor wiring.
+- Use `webdis::server::build_router_with_dependencies(...)` to inject custom parser/executor implementations.
+- Keep CLI-only concerns (daemonize, privilege drop, process exit) in the binary entrypoint.
+
+See `docs/library-embedding.md` for the overview and `docs/embedding/README.md` for separate implementation pages (interfaces, sidecar mount, policy executor, tenant parser, and test stubs).
+
 That’s it—Webdis remains tiny, easy to configure, and now benefits from Rust’s safety guarantees plus structured documentation.

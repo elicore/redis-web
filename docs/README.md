@@ -12,4 +12,8 @@
 
 [**Docker & Compose consolidated examples:**](docker/README.md) Modernized Docker examples with dev/prod compose files, TLS setup, RDB import workflows, and helper scripts.
 
+[**Library embedding overview:**](library-embedding.md) Entry point for running Webdis as an embedded library and navigating implementation patterns.
+
+[**Embedding patterns and interfaces:**](embedding/README.md) Interface reference and realistic integration pages for sidecar, policy executor, tenant parser, and test stubs.
+
 **(more coming in the future!)**

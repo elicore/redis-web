@@ -36,6 +36,10 @@ on:
         type: boolean
         required: false
         default: true
+      run_integration_tests:
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   linux-run:
@@ -51,6 +55,7 @@ jobs:
         with:
           arch: ${{ inputs.arch }}
           run-tests: ${{ inputs.run_tests }}
+          run-integration-tests: ${{ inputs.run_integration_tests }}
           qemu: ${{ inputs.arch == 'aarch64' && 'true' || 'false' }}
           os_name: ${{ inputs.os_name }}
 
@@ -68,4 +73,5 @@ jobs:
         with:
           arch: ${{ inputs.arch }}
           run-tests: ${{ inputs.run_tests }}
+          run-integration-tests: ${{ inputs.run_integration_tests }}
           os_name: ${{ inputs.os_name }}

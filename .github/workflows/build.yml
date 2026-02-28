@@ -8,8 +8,20 @@ name: Build and test (OS matrix)
 # - To run aarch64 tests under QEMU, configure `arch: aarch64` and the reusable workflow will pass
 #   `qemu: true` when appropriate. See the composite action README for details.
 
-# trigger the workflow on push or pull requests
-on: [workflow_dispatch]
+# trigger the workflow on pull requests, pushes to main, nightly, and manual runs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      run_integration:
+        description: 'Run integration tier (Redis/process/socket tests)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   linux:
@@ -54,6 +66,7 @@ jobs:
       container: ${{ matrix.container }}
       os_name: ${{ matrix.os_name }}
       redis_image: ${{ matrix.redis_image }}
+      run_integration_tests: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.run_integration == 'true' }}
 
 
   macos:
@@ -74,3 +87,4 @@ jobs:
       container: ''
       os_name: ${{ matrix.os_name }}
       redis_image: ''
+      run_integration_tests: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.run_integration == 'true' }}

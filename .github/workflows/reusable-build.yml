@@ -53,6 +53,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              build-essential pkg-config libssl-dev ca-certificates
+          elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y gcc gcc-c++ make pkgconf-pkg-config openssl-devel ca-certificates
+          elif command -v microdnf >/dev/null 2>&1; then
+            microdnf install -y gcc gcc-c++ make pkgconf-pkg-config openssl-devel ca-certificates
+          elif command -v yum >/dev/null 2>&1; then
+            yum install -y gcc gcc-c++ make pkgconfig openssl-devel ca-certificates
+          else
+            echo "No supported package manager found to install build dependencies"
+            exit 1
+          fi
+
       - name: Build and Test (composite action)
         uses: ./.github/actions/build
         with:

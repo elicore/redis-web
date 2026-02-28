@@ -16,7 +16,17 @@ clean:
 	cargo clean
 
 test:
-	cargo test
+	cargo test --lib
+	cargo test --test config_test --test handler_test --test logging_fsync_test --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
+
+test_unit:
+	cargo test --lib
+
+test_functional:
+	cargo test --test config_test --test handler_test --test logging_fsync_test --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
+
+test_integration:
+	cargo test --test integration_process_boot_test --test integration_redis_http_test --test integration_redis_pubsub_test --test integration_redis_socket_test --test websocket_raw_test
 
 perftest:
 	./tests/bench.sh

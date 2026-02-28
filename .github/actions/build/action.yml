@@ -52,23 +52,39 @@ runs:
       shell: bash
 
     - name: Build (cargo)
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: |
-          --release
-          ${{ inputs.arch && ("--target " + (inputs.arch == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu')) || '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        target_triple=""
+        if [[ "${{ inputs.arch }}" == "aarch64" ]]; then
+          target_triple="aarch64-unknown-linux-gnu"
+        elif [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+          target_triple="x86_64-unknown-linux-gnu"
+        fi
+
+        if [[ -n "${target_triple}" ]]; then
+          cargo build --release --target "${target_triple}"
+        else
+          cargo build --release
+        fi
 
     - name: Compile test binaries (regression guard)
       if: ${{ inputs.run-tests == 'true' }}
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: |
-          --release
-          --tests
-          --no-run
-          ${{ inputs.arch && ("--target " + (inputs.arch == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu')) || '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        target_triple=""
+        if [[ "${{ inputs.arch }}" == "aarch64" ]]; then
+          target_triple="aarch64-unknown-linux-gnu"
+        elif [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+          target_triple="x86_64-unknown-linux-gnu"
+        fi
+
+        if [[ -n "${target_triple}" ]]; then
+          cargo test --release --tests --no-run --target "${target_triple}"
+        else
+          cargo test --release --tests --no-run
+        fi
 
     - name: Run tiered tests (native x86_64)
       if: ${{ inputs.run-tests == 'true' && inputs.arch == 'x86_64' }}

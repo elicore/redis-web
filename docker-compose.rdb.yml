@@ -14,14 +14,14 @@ services:
       timeout: 2s
       retries: 5
 
-  webdis:
-    image: elicore/webdis:latest
+  redis-web:
+    image: ghcr.io/elicore/redis-web:latest
     depends_on:
       - redis
     ports:
       - "127.0.0.1:7379:7379"
     volumes:
-      - ./webdis.json:/etc/webdis.json:ro
+      - ./redis-web.json:/etc/redis-web.json:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379

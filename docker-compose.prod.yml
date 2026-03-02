@@ -14,8 +14,8 @@ services:
     secrets:
       - redis_password
 
-  webdis:
-    image: elicore/webdis:latest
+  redis-web:
+    image: ghcr.io/elicore/redis-web:latest
     depends_on:
       - redis
     environment:
@@ -24,7 +24,7 @@ services:
     ports:
       - "7379:7379"
     volumes:
-      - webdis-config:/etc/webdis.d:ro
+      - redis-web-config:/etc/redis-web.d:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:7379/PING"]
@@ -39,7 +39,7 @@ services:
 
 volumes:
   redis-data:
-  webdis-config:
+  redis-web-config:
 
 secrets:
   redis_password:

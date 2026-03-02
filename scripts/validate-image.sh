@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Validate docker image integrity and signatures using cosign or Docker Content Trust as fallback
-# Usage: ./scripts/validate-image.sh --image elicore/webdis:latest --method cosign
+# Usage: ./scripts/validate-image.sh --image ghcr.io/elicore/redis-web:latest --method cosign
 
-IMAGE=${IMAGE:-elicore/webdis:latest}
+IMAGE=${IMAGE:-ghcr.io/elicore/redis-web:latest}
 METHOD=${METHOD:-cosign}
 
 while [[ "$#" -gt 0 ]]; do

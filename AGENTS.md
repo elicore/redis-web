@@ -16,16 +16,16 @@ cargo test --test config_test
 cargo test --test integration_test
 ```
 
-### 2) Run Webdis locally
+### 2) Run redis-web locally
 Use this when iterating on server behavior with a local config.
 
 ```bash
-cargo run --release -- webdis.json
+cargo run -p redis-web --release --bin redis-web -- redis-web.json
 ```
 
 Optional: scaffold a default config file (non-overwriting).
 ```bash
-cargo run -- --write-default-config --config ./webdis.generated.json
+cargo run -p redis-web -- --write-default-config --config ./redis-web.generated.json
 ```
 
 ### 3) Docker-based smoke workflow
@@ -63,20 +63,20 @@ make clean
 make test
 make test_all
 cargo test --test config_test
-cargo test --test integration_test
+cargo test --test integration_process_boot_test
 ```
 
 ### Helpful scripts
 ```bash
-./scripts/start-webdis.sh --mode dev
-./scripts/start-webdis.sh --mode run --tag webdis:dev --config webdis.json
+./scripts/start-redis-web.sh --mode dev
+./scripts/start-redis-web.sh --mode run --tag redis-web:dev --config redis-web.json
 ./scripts/generate-certs.sh
-./scripts/import-rdb.sh --rdb /absolute/path/to/dump.rdb
-./scripts/validate-image.sh --image elicore/webdis:latest --method cosign
+./scripts/import-rdb.sh /absolute/path/to/dump.rdb
+./scripts/validate-image.sh --image ghcr.io/elicore/redis-web:latest --method cosign
 ```
 
 ## Contribution Notes
 
-- Prefer fast feedback: `config_test` before `integration_test`.
-- Keep `webdis.schema.json` and sample configs aligned when introducing config keys.
-- Avoid committing local runtime artifacts such as `webdis.log`.
+- Prefer fast feedback: `config_test` before full integration tests.
+- Keep `redis-web.schema.json` and sample configs aligned when introducing config keys.
+- Avoid committing local runtime artifacts such as `redis-web.log`.

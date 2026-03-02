@@ -1,7 +1,7 @@
 version: '3.8'
 services:
-  webdis:
-    image: elicore/webdis:latest
+  redis-web:
+    image: ghcr.io/elicore/redis-web:latest
     environment:
       - REDIS_HOST=${REDIS_HOST:-127.0.0.1}
       - REDIS_PORT=${REDIS_PORT:-6379}
@@ -9,7 +9,7 @@ services:
     ports:
       - "127.0.0.1:7379:7379"
     volumes:
-      - ./webdis.json:/etc/webdis.json:ro
+      - ./redis-web.json:/etc/redis-web.json:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:7379/PING"]

@@ -2,7 +2,7 @@
 *.swp
 *.o
 webdis
-redis-web
+/redis-web
 websocket
 *.png
 pubsub

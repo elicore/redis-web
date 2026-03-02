@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simple idempotent cert generation for Redis <-> Webdis TLS for dev/test
+# Simple idempotent cert generation for Redis <-> redis-web TLS for dev/test
 # Usage: ./scripts/generate-certs.sh --outdir ./certs --cn redis.local
 
 OUT_DIR=./certs
@@ -24,7 +24,7 @@ pushd "$OUT_DIR" >/dev/null
 if [[ ! -f ca.key || ! -f ca.crt ]]; then
   echo "Generating CA..."
   openssl genrsa -out ca.key 4096
-  openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -subj "/CN=webdis CA" -out ca.crt
+  openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -subj "/CN=redis-web CA" -out ca.crt
 fi
 
 echo "Generating Redis server key and cert..."
@@ -37,7 +37,7 @@ fi
 echo "Generating client key and cert..."
 if [[ ! -f client.key || ! -f client.csr || ! -f client.crt ]]; then
   openssl genrsa -out client.key 2048
-  openssl req -new -key client.key -subj "/CN=webdis-client" -out client.csr
+  openssl req -new -key client.key -subj "/CN=redis-web-client" -out client.csr
   openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 365 -sha256
 fi
 

@@ -68,17 +68,17 @@ jobs:
           cargo --version
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --workspace
 
       - name: Compile test binaries (regression guard)
-        run: cargo test --release --tests --no-run
+        run: cargo test --release -p redis-web --tests --no-run
 
       - name: Run unit tests
-        run: cargo test --release --lib
+        run: cargo test --release --workspace --lib
 
       - name: Run functional tests
         run: |
-          cargo test --release \
+          cargo test --release -p redis-web \
             --test config_test \
             --test handler_test \
             --test logging_fsync_test \
@@ -89,7 +89,7 @@ jobs:
       - name: Run integration tests
         if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_integration == 'true') }}
         run: |
-          cargo test --release \
+          cargo test --release -p redis-web \
             --test integration_process_boot_test \
             --test integration_redis_http_test \
             --test integration_redis_pubsub_test \
@@ -100,8 +100,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webdis-${{ matrix.os_name }}-${{ matrix.arch }}.log
-          path: webdis.log
+          name: redis-web-${{ matrix.os_name }}-${{ matrix.arch }}.log
+          path: |
+            redis-web.log
+            webdis.log
           if-no-files-found: ignore
 
   ci-macos:
@@ -156,17 +158,17 @@ jobs:
           cargo --version
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --workspace
 
       - name: Compile test binaries (regression guard)
-        run: cargo test --release --tests --no-run
+        run: cargo test --release -p redis-web --tests --no-run
 
       - name: Run unit tests
-        run: cargo test --release --lib
+        run: cargo test --release --workspace --lib
 
       - name: Run functional tests
         run: |
-          cargo test --release \
+          cargo test --release -p redis-web \
             --test config_test \
             --test handler_test \
             --test logging_fsync_test \
@@ -177,7 +179,7 @@ jobs:
       - name: Run integration tests
         if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_integration == 'true') }}
         run: |
-          cargo test --release \
+          cargo test --release -p redis-web \
             --test integration_process_boot_test \
             --test integration_redis_http_test \
             --test integration_redis_pubsub_test \
@@ -188,6 +190,46 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webdis-${{ matrix.os_name }}-${{ matrix.arch }}.log
-          path: webdis.log
+          name: redis-web-${{ matrix.os_name }}-${{ matrix.arch }}.log
+          path: |
+            redis-web.log
+            webdis.log
           if-no-files-found: ignore
+
+  docs:
+    name: docs build + links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install docs dependencies
+        working-directory: docs
+        run: npm install
+
+      - name: Astro check
+        working-directory: docs
+        run: npm run check
+
+      - name: Build docs
+        working-directory: docs
+        run: npm run build
+
+      - name: Validate local docs links
+        working-directory: docs
+        run: npm run check-links
+
+  rename-guard:
+    name: rename guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Ensure legacy name only appears in allowlisted paths
+        run: ./scripts/check-webdis-references.sh

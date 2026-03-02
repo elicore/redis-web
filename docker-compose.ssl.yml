@@ -16,12 +16,12 @@ services:
       retries: 5
     restart: unless-stopped
 
-  webdis:
-    image: elicore/webdis:latest
+  redis-web:
+    image: ghcr.io/elicore/redis-web:latest
     depends_on:
       - redis
     volumes:
-      - ./webdis.json:/etc/webdis.json:ro
+      - ./redis-web.json:/etc/redis-web.json:ro
       - ./certs:/certs:ro
     environment:
       - REDIS_HOST=redis

@@ -17,11 +17,11 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build application
 COPY . .
-RUN cargo build --release
+RUN cargo build --release -p redis-web --bins
 
 # Prepare config (same as before)
-RUN sed -i 's/"daemonize": true/"daemonize": false/' webdis.prod.json && \
-    sed -i 's/"logfile": ".*"/"logfile": null/' webdis.prod.json
+RUN sed -i 's/"daemonize": true/"daemonize": false/' redis-web.prod.json && \
+    sed -i 's#"logfile": ".*"#"logfile": null#' redis-web.prod.json
 
 # Runtime stage
 FROM alpine:3.20
@@ -32,19 +32,21 @@ FROM alpine:3.20
 RUN apk add --no-cache libssl3 libgcc ca-certificates
 
 # Create a non-root user
-RUN adduser -D -g '' webdis
+RUN adduser -D -g '' redisweb
 
 WORKDIR /app
 
-# Copy the build artifact and config
+# Copy the build artifacts and configs
+COPY --from=builder /app/target/release/redis-web /usr/local/bin/redis-web
 COPY --from=builder /app/target/release/webdis /usr/local/bin/webdis
+COPY --from=builder /app/redis-web.prod.json /etc/redis-web.prod.json
 COPY --from=builder /app/webdis.prod.json /etc/webdis.prod.json
 
 # Use the non-root user
-USER webdis
+USER redisweb
 
 # Expose the port
 EXPOSE 7379
 
 # Run the application
-CMD ["webdis", "/etc/webdis.prod.json"]
+CMD ["redis-web", "/etc/redis-web.prod.json"]

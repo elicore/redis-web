@@ -1,0 +1,16 @@
+[package]
+name = "redis-web-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-stream = "0.3.6"
+axum = { version = "0.8", features = ["ws"] }
+deadpool = { version = "0.12", features = ["rt_tokio_1"] }
+futures = "0.3"
+redis = { version = "1.0.3", features = ["tokio-comp", "connection-manager", "tokio-native-tls-comp"] }
+redis-web-core = { path = "../redis-web-core" }
+serde_json = "1.0"
+sha1 = "0.10"
+tokio = { version = "1.49", features = ["full"] }
+tracing = "0.1"

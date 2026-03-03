@@ -8,10 +8,7 @@
   "http_port": 7379,
 
   "http_threads": 4,
-
   "daemonize": true,
-
-  "database": 0,
 
   "acl": [
     {

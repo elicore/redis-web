@@ -37,6 +37,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::RwLock;
+use tracing::{debug, error, info};
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -60,6 +61,7 @@ impl deadpool::managed::Manager for WebdisRedisManager {
     type Error = redis::RedisError;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
+        debug!("Creating multiplexed Redis connection");
         self.client.get_multiplexed_async_connection().await
     }
 
@@ -76,6 +78,9 @@ impl deadpool::managed::Manager for WebdisRedisManager {
         if pong == "PONG" {
             Ok(())
         } else {
+            error!(
+                "Redis connection recycle health-check failed: unexpected PING response: {pong}"
+            );
             Err(RecycleError::message(format!(
                 "unexpected PING response from Redis: {pong}"
             )))
@@ -202,6 +207,11 @@ pub fn create_pool(config: &AppConfig) -> Result<RedisPool, RedisCreatePoolError
         .pool_size_per_thread
         .unwrap_or(DEFAULT_POOL_SIZE_PER_THREAD)
         * config.http_threads.unwrap_or(DEFAULT_HTTP_THREADS);
+    info!(
+        "Creating Redis connection pool: endpoint={}, max_size={}",
+        redis_endpoint_summary(config),
+        pool_size
+    );
 
     let pool = Pool::builder(manager)
         .config(PoolConfig::new(pool_size))
@@ -235,9 +245,20 @@ pub fn create_pool_for_database(
 /// - TLS settings are applied only for TCP/TLS connections, not UNIX sockets.
 pub fn create_pubsub_client(config: &AppConfig) -> Result<redis::Client, redis::RedisError> {
     if let Some(socket) = config.redis_socket.as_deref() {
+        info!(
+            "Creating Redis pub/sub client over UNIX socket: {} (db={})",
+            socket, config.database
+        );
         let info = connection_info_for_unix_socket_redis(config, socket)?;
         redis::Client::open(info)
     } else {
+        info!(
+            "Creating Redis pub/sub client over TCP/TLS: {}:{} (db={}, tls={})",
+            config.redis_host,
+            config.redis_port,
+            config.database,
+            ssl_enabled(config)
+        );
         redis::Client::open(config.get_redis_url())
     }
 }
@@ -266,6 +287,10 @@ fn redis_username_password(config: &AppConfig) -> (Option<String>, Option<String
 fn pool_connection_info(config: &AppConfig) -> Result<ConnectionInfo, redis::RedisError> {
     if let Some(socket) = config.redis_socket.as_deref() {
         if ssl_enabled(config) {
+            error!(
+                "Invalid Redis config: ssl.enabled=true cannot be combined with redis_socket={}",
+                socket
+            );
             return Err(redis::RedisError::from((
                 ErrorKind::InvalidClientConfig,
                 "ssl is not supported with redis_socket",
@@ -294,6 +319,10 @@ fn connection_info_for_unix_socket_redis(
     socket_path: &str,
 ) -> Result<ConnectionInfo, redis::RedisError> {
     let socket_path = PathBuf::from(socket_path);
+    debug!(
+        "Validating redis_socket path for startup connection checks: {}",
+        socket_path.display()
+    );
     validate_unix_socket_path(&socket_path)?;
 
     let (username, password) = redis_username_password(config);
@@ -326,6 +355,11 @@ fn validate_unix_socket_path(path: &Path) -> Result<(), redis::RedisError> {
     #[cfg(unix)]
     {
         let meta = std::fs::metadata(path).map_err(|e| {
+            error!(
+                "Redis unix socket validation failed: path is not accessible: {} ({})",
+                path.display(),
+                e
+            );
             redis::RedisError::from((
                 ErrorKind::Io,
                 "redis_socket path is not accessible",
@@ -334,6 +368,10 @@ fn validate_unix_socket_path(path: &Path) -> Result<(), redis::RedisError> {
         })?;
 
         if !meta.file_type().is_socket() {
+            error!(
+                "Redis unix socket validation failed: not a socket file: {}",
+                path.display()
+            );
             return Err(redis::RedisError::from((
                 ErrorKind::InvalidClientConfig,
                 "redis_socket is not a unix socket",
@@ -368,11 +406,30 @@ fn maybe_apply_tcp_keepalive(
 
             let tcp_settings: TcpSettings = info.tcp_settings().clone().set_keepalive(keepalive);
             info = info.set_tcp_settings(tcp_settings);
+            info!(
+                "Configured Redis TCP keepalive: idle={}s interval={}s",
+                time.as_secs(),
+                interval.as_secs()
+            );
             Ok(info)
         }
         ConnectionAddr::Unix(_) => Ok(info),
         // Non-exhaustive enum: preserve defaults for future variants.
         _ => Ok(info),
+    }
+}
+
+fn redis_endpoint_summary(config: &AppConfig) -> String {
+    if let Some(socket) = config.redis_socket.as_deref() {
+        format!("unix:{} db={}", socket, config.database)
+    } else {
+        format!(
+            "tcp:{}:{} db={} tls={}",
+            config.redis_host,
+            config.redis_port,
+            config.database,
+            ssl_enabled(config)
+        )
     }
 }
 

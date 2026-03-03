@@ -130,8 +130,14 @@ pub fn run(kind: InvocationKind) {
         registry.with(tracing_subscriber::fmt::layer()).init();
     }
 
-    info!("Starting redis-web...");
+    info!("Starting redis-web");
+    info!("Using configuration file: {}", config_path);
     info!("Configuration loaded successfully: {:?}", config);
+    info!(
+        "Logging initialized at level {:?}, destination: {}",
+        log_level,
+        config.logfile.as_deref().unwrap_or("stderr")
+    );
 
     if config.daemonize {
         let daemonize = Daemonize::new()
@@ -173,6 +179,7 @@ pub fn run(kind: InvocationKind) {
         }
     }
 
+    info!("Building Tokio runtime");
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -181,14 +188,19 @@ pub fn run(kind: InvocationKind) {
 }
 
 async fn async_main(config: Config) {
+    info!("Building HTTP router and Redis dependencies");
     let app = match server::build_router(&config) {
         Ok(app) => app,
         Err(error) => {
-            error!("{error}");
+            error!("Server startup failed during router/dependency build: {error}");
             process::exit(1);
         }
     };
 
+    info!(
+        "Starting HTTP server on {}:{}",
+        config.http_host, config.http_port
+    );
     if let Err(error) = server::serve(&config, app).await {
         error!("Failed to serve HTTP traffic: {}", error);
         process::exit(1);

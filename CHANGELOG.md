@@ -18,6 +18,11 @@ All notable changes to this project will be documented in this file.
 - Adjust order of memory release ([7b7b51a](https://github.com/elicore/redis-web/commit/7b7b51af5f6eda85a5e30305e9f3ba7ec94925ee))
 
 
+### Bug Fixes
+
+- *(docs)* Build ([c228708](https://github.com/elicore/redis-web/commit/c2287084450f4a020dedd015f8923dc7c062ecc9))
+
+
 ### CodeQL
 
 - Apply recommendations ([b3868d8](https://github.com/elicore/redis-web/commit/b3868d81d891e3a3ea8304c059d33ddc8885cbbc))
@@ -36,6 +41,8 @@ All notable changes to this project will be documented in this file.
 - Add AGENTS workflow and command guide ([0f53b7a](https://github.com/elicore/redis-web/commit/0f53b7ab5763ff073782c2d234b08aa483224e38))
 
 - Migrate to Starlight and add migration/deprecation guidance ([d581a1d](https://github.com/elicore/redis-web/commit/d581a1d305c99297b20afdaba0ddc3afa1758e1e))
+
+- *(changelog)* Update CHANGELOG.md ([05159a0](https://github.com/elicore/redis-web/commit/05159a0f486af33de7aa173c3ed4199121105c90))
 
 
 ### Features

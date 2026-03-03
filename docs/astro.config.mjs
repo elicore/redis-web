@@ -1,3 +1,4 @@
+// @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
@@ -10,9 +11,9 @@ export default defineConfig({
         {
           label: 'Getting Started',
           items: [
-            { label: 'Intent', link: '/getting-started/intent/' },
-            { label: 'Run', link: '/getting-started/run/' },
-            { label: 'First Requests', link: '/getting-started/first-requests/' }
+            { label: 'Intent', link: './getting-started/intent/' },
+            { label: 'Run', link: './getting-started/run/' },
+            { label: 'First Requests', link: './getting-started/first-requests/' }
           ]
         },
         {

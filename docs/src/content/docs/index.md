@@ -7,7 +7,7 @@ description: Start quickly, then drill into compatibility, references, and maint
 
 Use this split to navigate quickly:
 
-- New users: [Intent](/getting-started/intent/) and [Run](/getting-started/run/)
-- Integrators: [HTTP](/reference/http/), [WebSocket](/reference/websocket/), [Configuration](/reference/configuration/)
-- Migration users: [Webdis Compatibility Scope](/compatibility/webdis-compatibility/)
-- Maintainers: [Architecture](/maintainers/architecture/) and [Testing and CI](/maintainers/testing/)
+- New users: [Intent](./getting-started/intent/) and [Run](/getting-started/run/)
+- Integrators: [HTTP](./reference/http.md), [WebSocket](./reference/websocket.md), [Configuration](./reference/configuration.md)
+- Migration users: [Webdis Compatibility Scope](./compatibility/webdis-compatibility.md)
+- Maintainers: [Architecture](./maintainers/architecture.md) and [Testing and CI](./maintainers/testing.md)

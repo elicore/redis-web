@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "command": "bun run devs",
+      "name": "Docs server",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/docs",
+      "type": "node-terminal"
+    }
+  ]
+}

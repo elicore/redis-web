@@ -402,7 +402,7 @@ fn test_legacy_webdis_fixture_still_loads() {
         .nth(2)
         .expect("workspace root should exist")
         .to_path_buf();
-    let legacy_path = workspace_root.join("webdis.legacy.json");
+    let legacy_path = workspace_root.join("docs/examples/config/webdis.legacy.json");
     let config = Config::new(legacy_path.to_str().expect("path should be valid"));
     assert!(
         config.is_ok(),

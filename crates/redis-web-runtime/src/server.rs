@@ -14,6 +14,7 @@ use redis_web_core::interfaces::{CommandExecutor, RequestParser};
 use redis_web_core::request::WebdisRequestParser;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use tracing::{error, info};
 
 /// Injectable dependencies for embedding Webdis with custom parser/executor implementations.
 pub struct ServerDependencies {
@@ -77,10 +78,12 @@ pub fn build_router_with_dependencies(
 
 /// Builds the default Webdis router using the built-in parser and Redis executor.
 pub fn build_router(config: &Config) -> Result<Router, ServerBuildError> {
+    info!("Initializing Redis command pool");
     let redis_pool = redis::create_pool(config).map_err(ServerBuildError::RedisPool)?;
     let redis_pools = DatabasePoolRegistry::new(config.clone(), redis_pool);
     let redis_pools_shared = Arc::new(redis_pools);
 
+    info!("Initializing Redis pub/sub client");
     let pubsub_client = redis::create_pubsub_client(config).map_err(ServerBuildError::PubSub)?;
     let pubsub_manager = pubsub::PubSubManager::new(pubsub_client);
 
@@ -100,13 +103,17 @@ pub fn build_router(config: &Config) -> Result<Router, ServerBuildError> {
 /// Serves a pre-built Axum router on the configured host/port.
 pub async fn serve(config: &Config, app: Router) -> Result<(), std::io::Error> {
     let ip: IpAddr = config.http_host.parse().map_err(|_| {
-        std::io::Error::new(
+        let err = std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             format!("invalid HTTP host {}", config.http_host),
-        )
+        );
+        error!("{}", err);
+        err
     })?;
     let addr = SocketAddr::from((ip, config.http_port));
+    info!("Binding HTTP listener to {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("HTTP listener bound to {}", addr);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

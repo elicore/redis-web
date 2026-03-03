@@ -17,6 +17,7 @@ use redis_web_core::resp;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tracing::error;
 
 use crate::pubsub::PubSubManager;
 use sha1::{Digest, Sha1};
@@ -330,6 +331,10 @@ async fn process_request(
             }
         }
         Err(error) => {
+            error!(
+                "Redis command execution failed: command={} db={} client={} error={}",
+                parsed.command_name, parsed.target_database, addr, error
+            );
             if matches!(parsed.output_format, OutputFormat::Raw) {
                 // Raw Error: -ERR message
                 let err_msg = format!("-ERR {}\r\n", error);

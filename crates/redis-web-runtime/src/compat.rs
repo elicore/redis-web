@@ -502,6 +502,7 @@ pub async fn create_session(State(state): State<Arc<AppState>>, headers: HeaderM
             let prefix = manager.settings().path_prefix.clone();
             let id = session.id().to_string();
             let body = json!({
+                "id": id,
                 "session_id": id,
                 "created_at_ms": session.created_at().elapsed().as_millis(),
                 "ws_url": format!("ws://{host}{prefix}/ws/{}", session.id()),

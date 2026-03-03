@@ -29,15 +29,15 @@ async fn test_compat_session_command_roundtrip() {
     assert_eq!(create.status(), reqwest::StatusCode::CREATED);
 
     let body: serde_json::Value = create.json().await.expect("create body parse failed");
-    let session_id = body["session_id"]
+    let compat_id = body["id"]
         .as_str()
-        .expect("session_id missing")
+        .expect("id missing")
         .to_string();
 
     let set_resp = client
         .post(format!(
             "http://127.0.0.1:{}/__compat/cmd/{}.raw",
-            server.port, session_id
+            server.port, compat_id
         ))
         .body(resp_command(&["SET", "compat_key", "ok"]))
         .send()
@@ -50,7 +50,7 @@ async fn test_compat_session_command_roundtrip() {
     let get_resp = client
         .post(format!(
             "http://127.0.0.1:{}/__compat/cmd/{}.raw",
-            server.port, session_id
+            server.port, compat_id
         ))
         .body(resp_command(&["GET", "compat_key"]))
         .send()
@@ -63,7 +63,7 @@ async fn test_compat_session_command_roundtrip() {
     let delete = client
         .delete(format!(
             "http://127.0.0.1:{}/__compat/session/{}",
-            server.port, session_id
+            server.port, compat_id
         ))
         .send()
         .await
@@ -84,16 +84,16 @@ async fn test_compat_stream_pubsub_message() {
     assert_eq!(create.status(), reqwest::StatusCode::CREATED);
 
     let body: serde_json::Value = create.json().await.expect("create body parse failed");
-    let session_id = body["session_id"]
+    let compat_id = body["id"]
         .as_str()
-        .expect("session_id missing")
+        .expect("id missing")
         .to_string();
 
     let channel = format!("compat_stream_{}", server.port);
     let subscribe_resp = client
         .post(format!(
             "http://127.0.0.1:{}/__compat/cmd/{}.raw",
-            server.port, session_id
+            server.port, compat_id
         ))
         .body(resp_command(&["SUBSCRIBE", &channel]))
         .send()
@@ -110,7 +110,7 @@ async fn test_compat_stream_pubsub_message() {
     let stream_response = client
         .get(format!(
             "http://127.0.0.1:{}/__compat/stream/{}.raw",
-            server.port, session_id
+            server.port, compat_id
         ))
         .send()
         .await

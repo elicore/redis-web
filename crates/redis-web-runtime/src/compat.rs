@@ -68,6 +68,11 @@ pub struct CompatSessionManager {
     sessions: RwLock<HashMap<String, Arc<CompatSession>>>,
 }
 
+pub enum CreateSessionError {
+    LimitReached,
+    BackendUnavailable(String),
+}
+
 impl CompatSessionManager {
     pub fn new(config: &Config) -> Result<Self, redis::RedisError> {
         let settings = CompatSessionSettings::from_config(config);
@@ -86,13 +91,13 @@ impl CompatSessionManager {
         &self.settings
     }
 
-    pub async fn create_session(&self) -> Result<Arc<CompatSession>, String> {
+    pub async fn create_session(&self) -> Result<Arc<CompatSession>, CreateSessionError> {
         self.sweep_expired().await;
 
         {
             let sessions = self.sessions.read().await;
             if sessions.len() >= self.settings.max_sessions {
-                return Err("compat session limit reached".to_string());
+                return Err(CreateSessionError::LimitReached);
             }
         }
 
@@ -100,7 +105,11 @@ impl CompatSessionManager {
             .command_client
             .get_multiplexed_async_connection()
             .await
-            .map_err(|e| format!("failed to create compat command connection: {e}"))?;
+            .map_err(|e| {
+                CreateSessionError::BackendUnavailable(format!(
+                    "failed to create compat command connection: {e}"
+                ))
+            })?;
 
         let id = Uuid::new_v4().simple().to_string();
         let session = Arc::new(CompatSession::new(
@@ -512,9 +521,16 @@ pub async fn create_session(State(state): State<Arc<AppState>>, headers: HeaderM
             });
             with_cors((StatusCode::CREATED, axum::Json(body)).into_response())
         }
-        Err(error) => with_cors(
+        Err(CreateSessionError::LimitReached) => with_cors(
             (
                 StatusCode::TOO_MANY_REQUESTS,
+                axum::Json(json!({"error": "compat session limit reached"})),
+            )
+                .into_response(),
+        ),
+        Err(CreateSessionError::BackendUnavailable(error)) => with_cors(
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
                 axum::Json(json!({"error": error})),
             )
                 .into_response(),

@@ -16,19 +16,46 @@ fn resp_command(parts: &[&str]) -> Vec<u8> {
     out
 }
 
+async fn create_compat_session(client: &Client, port: u16) -> serde_json::Value {
+    let mut last_status = None;
+    let mut last_body = None;
+
+    for _ in 0..6 {
+        let resp = client
+            .post(format!("http://127.0.0.1:{port}/__compat/session"))
+            .send()
+            .await
+            .expect("create session request failed");
+
+        let status = resp.status();
+        let body_bytes = resp.bytes().await.expect("create body read failed");
+
+        if status == reqwest::StatusCode::CREATED {
+            return serde_json::from_slice(&body_bytes).expect("create body parse failed");
+        }
+
+        last_status = Some(status);
+        last_body = Some(String::from_utf8_lossy(&body_bytes).to_string());
+
+        if status != reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            break;
+        }
+
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    panic!(
+        "failed to create compat session; status={:?}, body={:?}",
+        last_status, last_body
+    );
+}
+
 #[tokio::test]
 async fn test_compat_session_command_roundtrip() {
     let server = TestServer::new().await;
     let client = Client::new();
 
-    let create = client
-        .post(format!("http://127.0.0.1:{}/__compat/session", server.port))
-        .send()
-        .await
-        .expect("create session request failed");
-    assert_eq!(create.status(), reqwest::StatusCode::CREATED);
-
-    let body: serde_json::Value = create.json().await.expect("create body parse failed");
+    let body = create_compat_session(&client, server.port).await;
     let compat_id = body["id"]
         .as_str()
         .expect("id missing")
@@ -76,14 +103,7 @@ async fn test_compat_stream_pubsub_message() {
     let server = TestServer::new().await;
     let client = Client::new();
 
-    let create = client
-        .post(format!("http://127.0.0.1:{}/__compat/session", server.port))
-        .send()
-        .await
-        .expect("create session request failed");
-    assert_eq!(create.status(), reqwest::StatusCode::CREATED);
-
-    let body: serde_json::Value = create.json().await.expect("create body parse failed");
+    let body = create_compat_session(&client, server.port).await;
     let compat_id = body["id"]
         .as_str()
         .expect("id missing")

@@ -461,7 +461,7 @@ fn keepalive_time_and_interval(keep_alive_sec: u64) -> (Duration, Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use redis_web_core::config::HiredisConfig;
+    use redis_web_core::config::HiRedisConfig;
 
     #[test]
     fn test_keepalive_time_and_interval_derivation() {
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn test_maybe_apply_tcp_keepalive_only_for_tcp_addrs() {
         let mut config = AppConfig::default();
-        config.hiredis = Some(HiredisConfig {
+        config.hiredis = Some(HiRedisConfig {
             keep_alive_sec: Some(15),
         });
 

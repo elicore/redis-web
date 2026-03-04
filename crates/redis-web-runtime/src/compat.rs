@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use futures::{SinkExt, StreamExt};
 use redis::aio::MultiplexedConnection;
 use redis::Value;
-use redis_web_core::config::{CompatHiredisConfig, Config};
+use redis_web_core::config::{CompatHiRedisConfig, Config};
 use redis_web_core::resp;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -34,7 +34,7 @@ impl CompatSessionSettings {
         let cfg = config
             .compat_hiredis
             .clone()
-            .unwrap_or_else(CompatHiredisConfig::default);
+            .unwrap_or_else(CompatHiRedisConfig::default);
         let path_prefix = normalize_prefix(&cfg.path_prefix);
         Self {
             enabled: cfg.enabled,

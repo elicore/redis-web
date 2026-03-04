@@ -15,6 +15,7 @@ use redis_web_core::config::{
     Config, LogFsync, LogFsyncMode, DEFAULT_HTTP_MAX_REQUEST_SIZE, DEFAULT_HTTP_THREADS,
     DEFAULT_POOL_SIZE_PER_THREAD, DEFAULT_VERBOSITY,
 };
+use serde_json::json;
 use redis_web_runtime::redis;
 
 /// Tests in this module may temporarily set process-wide environment variables.
@@ -109,6 +110,24 @@ fn test_default_values() {
     let compat = config.compat_hiredis.as_ref().unwrap();
     assert!(compat.enabled);
     assert_eq!(compat.path_prefix, "/__compat");
+}
+
+/// Tests that Config can be created from a JSON object (hash/dict) via `Config::from_value`.
+#[test]
+fn test_config_from_value() {
+    let obj = json!({
+        "redis_host": "localhost",
+        "redis_port": 6380,
+        "http_port": 7380,
+        "database": 1
+    });
+    let config = Config::from_value(obj).unwrap();
+    assert_eq!(config.redis_host, "localhost");
+    assert_eq!(config.redis_port, 6380);
+    assert_eq!(config.http_port, 7380);
+    assert_eq!(config.database, 1);
+    // Defaults applied for missing fields
+    assert_eq!(config.http_host, "0.0.0.0");
 }
 
 /// Ensures the generated default configuration document contains the expected

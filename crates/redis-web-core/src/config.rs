@@ -45,10 +45,10 @@ pub struct Config {
     /// When `hiredis.keep_alive_sec` is set, Webdis configures TCP keep-alive on Redis
     /// **TCP/TLS** connections it opens. This does not apply to UNIX-domain socket
     /// connections (`redis_socket`).
-    pub hiredis: Option<HiredisConfig>,
+    pub hiredis: Option<HiRedisConfig>,
     /// Optional hiredis-compat runtime settings used by the `/__compat/*` bridge.
     #[serde(default = "default_compat_hiredis")]
-    pub compat_hiredis: Option<CompatHiredisConfig>,
+    pub compat_hiredis: Option<CompatHiRedisConfig>,
     pub http_max_request_size: Option<usize>,
     pub user: Option<String>,
     pub group: Option<String>,
@@ -99,7 +99,7 @@ pub enum RedisAuthConfig {
 
 /// Legacy Hiredis options kept for compatibility with the original Webdis.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct HiredisConfig {
+pub struct HiRedisConfig {
     /// When set, enable TCP keep-alive on Redis TCP/TLS connections.
     ///
     /// This value is treated as the keep-alive idle time (in seconds), and is also used
@@ -111,7 +111,7 @@ pub struct HiredisConfig {
 
 /// Configuration for hiredis-compatible session endpoints.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CompatHiredisConfig {
+pub struct CompatHiRedisConfig {
     /// Enable/disable the compat session layer.
     pub enabled: bool,
     /// URL prefix mounted for compat endpoints.
@@ -124,7 +124,7 @@ pub struct CompatHiredisConfig {
     pub max_pipeline_commands: usize,
 }
 
-impl Default for CompatHiredisConfig {
+impl Default for CompatHiRedisConfig {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -137,6 +137,19 @@ impl Default for CompatHiredisConfig {
 }
 
 impl Config {
+    /// Create `Config` from a JSON object (e.g. `serde_json::json!({ "redis_host": "localhost" })`).
+    ///
+    /// Supports `$VARNAME` env-var expansion in string values. Merges the given object with
+    /// defaults; only provided keys override.
+    pub fn from_value(value: Value) -> Result<Self, ConfigError> {
+        let Value::Object(map) = value else {
+            return Err(ConfigError::Message(
+                "config must be a JSON object".to_string(),
+            ));
+        };
+        Self::from_json_value(Value::Object(map))
+    }
+
     pub fn new(config_path: &str) -> Result<Self, ConfigError> {
         // Load the config file as untyped JSON first so we can preserve Webdis' legacy
         // behavior where some values (notably integers) can be specified indirectly via
@@ -148,13 +161,15 @@ impl Config {
             .add_source(File::with_name(config_path))
             .build()?;
 
-        let mut json: Value = loader.try_deserialize()?;
+        let json: Value = loader.try_deserialize()?;
+        Self::from_json_value(json)
+    }
+
+    fn from_json_value(mut json: Value) -> Result<Self, ConfigError> {
         expand_env_vars_in_json(&mut json, JsonPath::root())?;
 
-        // Re-parse via the `config` crate so it can apply its value coercions
-        // (for example, parsing `"6379"` into a `u16`).
         let expanded = serde_json::to_string(&json).map_err(|e| {
-            ConfigError::Message(format!("failed to serialize expanded config: {e}"))
+            ConfigError::Message(format!("failed to serialize config: {e}"))
         })?;
         let loader = ConfigLoader::builder()
             .add_source(File::from_str(&expanded, FileFormat::Json))
@@ -289,8 +304,8 @@ const DEFAULT_CONFIG_KEY_ORDER: &[&str] = &[
     "acl",
 ];
 
-fn default_compat_hiredis() -> Option<CompatHiredisConfig> {
-    Some(CompatHiredisConfig::default())
+fn default_compat_hiredis() -> Option<CompatHiRedisConfig> {
+    Some(CompatHiRedisConfig::default())
 }
 
 fn decorate_default_map(mut map: Map<String, Value>, schema_ref: &str) -> Map<String, Value> {

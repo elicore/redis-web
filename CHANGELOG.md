@@ -36,6 +36,8 @@ All notable changes to this project will be documented in this file.
 
 - *(changelog)* Update CHANGELOG.md ([382db45](https://github.com/elicore/redis-web/commit/382db4553f86ff7ee5c367dd13024c161c617674))
 
+- *(changelog)* Update CHANGELOG.md ([2c42eb8](https://github.com/elicore/redis-web/commit/2c42eb8de229deb80033a7653f223b09c60796eb))
+
 
 ### Features
 
@@ -101,6 +103,8 @@ All notable changes to this project will be documented in this file.
 - Relocate docker assets and config examples to docs ([1b498f9](https://github.com/elicore/redis-web/commit/1b498f9c1a417acf8527cd5ccaa5349dc3b90788))
 
 - *(CI)* Add release-please configuration and manifest files for automated releases ([2b15918](https://github.com/elicore/redis-web/commit/2b1591838501bd2137e249cd0af09d09f22b7a6a))
+
+- *(CI)* Update GitHub Actions workflow to enhance Docker image metadata handling and signing process ([2fe7d43](https://github.com/elicore/redis-web/commit/2fe7d43d75ff06c4ba9f03907c8ecbcfdc3de197))
 
 
 ### Parity

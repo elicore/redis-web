@@ -1,0 +1,58 @@
+name: Publish Rust Crates (GitHub Packages)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Configure Cargo registry for GitHub Packages
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cargo"
+          cat > "$HOME/.cargo/config.toml" <<CFG
+          [registries.github]
+          index = "sparse+https://cargo.pkg.github.com/${OWNER}/index"
+          CFG
+
+      - name: Publish workspace crates to GitHub registry
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Keep explicit order for internal dependencies.
+          crates=(
+            redis-web-core
+            redis-web-runtime
+            redis-web-compat
+            redis-web-hiredis-compat
+            redis-web
+          )
+
+          for crate in "${crates[@]}"; do
+            echo "Publishing ${crate}..."
+            cargo publish -p "${crate}" --registry github --token "$CARGO_REGISTRY_TOKEN"
+          done

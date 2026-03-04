@@ -42,11 +42,94 @@ jobs:
               - '**'
               - '!docs/**'
 
+  pr-sanity-build:
+    name: pr sanity build
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev ca-certificates
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Sanity build
+        run: cargo build --workspace
+
+  pr-rust-tests:
+    name: pr rust tests
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
+    services:
+      redis:
+        image: redis:8.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev ca-certificates redis-tools
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Wait for Redis
+        run: |
+          set -euo pipefail
+          for _ in {1..40}; do
+            if redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "redis service not reachable on 127.0.0.1:6379" >&2
+          exit 1
+
+      - name: Run Rust tests
+        run: |
+          cargo test --workspace --lib
+          cargo test -p redis-web \
+            --test config_test \
+            --test handler_test \
+            --test logging_fsync_test \
+            --test functional_interface_mapping_test \
+            --test functional_http_contract_test \
+            --test functional_ws_contract_test \
+            --test integration_hiredis_compat_test
+
   ci-linux:
     name: linux (${{ matrix.os_name }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' && github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +143,8 @@ jobs:
     services:
       redis:
         image: redis:8.2-alpine
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -90,6 +175,18 @@ jobs:
           rustc --version
           cargo --version
 
+      - name: Wait for Redis
+        run: |
+          set -euo pipefail
+          for _ in {1..40}; do
+            if redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "redis service not reachable on 127.0.0.1:6379" >&2
+          exit 1
+
       - name: Build
         run: cargo build --release --workspace
 
@@ -117,7 +214,8 @@ jobs:
             --test integration_redis_http_test \
             --test integration_redis_pubsub_test \
             --test integration_redis_socket_test \
-            --test websocket_raw_test
+            --test websocket_raw_test \
+            --test integration_hiredis_compat_test
 
       - name: Archive logs
         if: always()
@@ -133,7 +231,7 @@ jobs:
     name: macos (${{ matrix.os_name }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' && github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -209,7 +307,8 @@ jobs:
             --test integration_redis_http_test \
             --test integration_redis_pubsub_test \
             --test integration_redis_socket_test \
-            --test websocket_raw_test
+            --test websocket_raw_test \
+            --test integration_hiredis_compat_test
 
       - name: Archive logs
         if: always()
@@ -225,7 +324,7 @@ jobs:
     name: docs build + links
     runs-on: ubuntu-latest
     needs: changes
-    if: ${{ needs.changes.outputs.docs == 'true' }}
+    if: ${{ needs.changes.outputs.docs == 'true' && github.event_name != 'pull_request' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -255,6 +354,7 @@ jobs:
     name: rename guard
     runs-on: ubuntu-latest
     needs: changes
+    if: ${{ github.event_name != 'pull_request' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

@@ -3,18 +3,11 @@
 All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
-### Added
-
-- Initial hiredis-compat implementation scaffolding:
-  - New `redis-web-hiredis-compat` crate with C ABI symbol exports and headers
-  - New `/__compat/*` session endpoints for raw RESP command/session transport
-  - New `compat_hiredis` config namespace in schema/config parsing
-  - Integration tests for compat session command and pub/sub stream paths
-  - New compatibility and test documentation pages for maintainers/users
-
 ### Bug Fixes
 
 - *(docs)* Build ([4974b28](https://github.com/elicore/redis-web/commit/4974b28e4c2aa50a3c6d2e1dd8523f61bfe3a429))
+
+- Stabilize hiredis compat session creation in CI ([1a65a60](https://github.com/elicore/redis-web/commit/1a65a60a64864a0c59aa5c2c5ce185226583ca67))
 
 
 ### Documentation
@@ -36,6 +29,10 @@ All notable changes to this project will be documented in this file.
 - *(changelog)* Update CHANGELOG.md ([ace33cc](https://github.com/elicore/redis-web/commit/ace33cccf8fd0fdae326023ee7a76038fa1d2154))
 
 - *(changelog)* Update CHANGELOG.md ([51f8519](https://github.com/elicore/redis-web/commit/51f8519be0f8a5d897db8a1c03fbdb14d44dd965))
+
+- Add hiredis compat meta PR plan and task tracker ([3d8cca8](https://github.com/elicore/redis-web/commit/3d8cca81954ab401c6e151c705dd42982bdbcf9e))
+
+- *(changelog)* Update CHANGELOG.md ([6f05165](https://github.com/elicore/redis-web/commit/6f05165ba7e64cf63d0b92d24e14d34f7320e5fc))
 
 
 ### Features
@@ -75,6 +72,8 @@ All notable changes to this project will be documented in this file.
 - *(parity)* Database selection via /<db>/ prefix   ([b03b64d](https://github.com/elicore/redis-web/commit/b03b64dd03e117dc998cd1665e1ae584b860dabe))
 
 - Split into redis-web workspace crates with compatibility layer ([96221bb](https://github.com/elicore/redis-web/commit/96221bbb87965393aaaee5f76a84a0de3f6a3ff6))
+
+- Add hiredis-compat session bridge, crate scaffolding, tests, and docs ([ad379ac](https://github.com/elicore/redis-web/commit/ad379aca971e423c158809b01e479a3d785bb0ac))
 
 
 ### Miscellaneous Tasks
@@ -131,6 +130,10 @@ All notable changes to this project will be documented in this file.
 
 - Load legacy webdis fixture from docs examples ([d44ba9d](https://github.com/elicore/redis-web/commit/d44ba9d0df9f15079d403e316107ad09d6997107))
 
+- Avoid codeql sensitive session_id flow in compat integration tests ([1b310f8](https://github.com/elicore/redis-web/commit/1b310f8bd506b6bdfb02b96fa038673024220cac))
+
+- Increase compat session retry window for CI redis startup ([d430ea8](https://github.com/elicore/redis-web/commit/d430ea8d179ab015f1bed9b0ed0b52e53f459bdf))
+
 
 ### Ci
 
@@ -152,6 +155,10 @@ All notable changes to this project will be documented in this file.
 
 - Skip docs or code jobs based on changes ([4643c6f](https://github.com/elicore/redis-web/commit/4643c6fec1c84f9c9b85ad881512aa550858ba6c))
 
+- Limit PR checks to rust test/build and add crate publish workflow ([23dd663](https://github.com/elicore/redis-web/commit/23dd663194dab88338f3ee8ae2a8eb87f656a668))
+
+- Expose redis service port and wait for readiness ([8264716](https://github.com/elicore/redis-web/commit/82647166258623d85aa4edf19c3d2aa5ab355a9d))
+
 
 ### Logging
 
@@ -161,5 +168,6 @@ All notable changes to this project will be documented in this file.
 ### Root
 
 - Fork point snapshot ([9a120cb](https://github.com/elicore/redis-web/commit/9a120cb778a0796b54ba6dbfcdb5ee0287c83473))
+
 
 

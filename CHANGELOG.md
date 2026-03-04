@@ -40,6 +40,10 @@ All notable changes to this project will be documented in this file.
 
 - *(changelog)* Update CHANGELOG.md ([dfb88bd](https://github.com/elicore/redis-web/commit/dfb88bd5e6c3ebe192a47ef241a99ac3e4a2c2c1))
 
+- *(compatibility)* Enhance hiredis drop-in documentation with feature set, configuration examples, and operational notes ([923fa52](https://github.com/elicore/redis-web/commit/923fa529f56077d5e605e6fb467e5564eefbff7a))
+
+- *(changelog)* Update CHANGELOG.md ([20bb3bf](https://github.com/elicore/redis-web/commit/20bb3bfeb808706739859481f0ec521a588093cf))
+
 
 ### Features
 

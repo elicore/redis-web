@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": true,
+  "packages": {
+    "crates/redis-web-core": {
+      "release-type": "rust",
+      "package-name": "redis-web-core"
+    },
+    "crates/redis-web-runtime": {
+      "release-type": "rust",
+      "package-name": "redis-web-runtime"
+    },
+    "crates/redis-web-compat": {
+      "release-type": "rust",
+      "package-name": "redis-web-compat"
+    },
+    "crates/redis-web": {
+      "release-type": "rust",
+      "package-name": "redis-web"
+    }
+  }
+}

@@ -34,6 +34,8 @@ All notable changes to this project will be documented in this file.
 
 - *(changelog)* Update CHANGELOG.md ([6f05165](https://github.com/elicore/redis-web/commit/6f05165ba7e64cf63d0b92d24e14d34f7320e5fc))
 
+- *(changelog)* Update CHANGELOG.md ([382db45](https://github.com/elicore/redis-web/commit/382db4553f86ff7ee5c367dd13024c161c617674))
+
 
 ### Features
 
@@ -97,6 +99,8 @@ All notable changes to this project will be documented in this file.
 - Move prek to local developer config ([28520f5](https://github.com/elicore/redis-web/commit/28520f531c549a38463f245ec5a5d4d35e9a3633))
 
 - Relocate docker assets and config examples to docs ([1b498f9](https://github.com/elicore/redis-web/commit/1b498f9c1a417acf8527cd5ccaa5349dc3b90788))
+
+- *(CI)* Add release-please configuration and manifest files for automated releases ([2b15918](https://github.com/elicore/redis-web/commit/2b1591838501bd2137e249cd0af09d09f22b7a6a))
 
 
 ### Parity

@@ -75,6 +75,8 @@ jobs:
     services:
       redis:
         image: redis:8.2-alpine
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -82,7 +84,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: false
 
@@ -98,6 +100,18 @@ jobs:
         with:
           toolchain: stable
           cache: true
+
+      - name: Wait for Redis
+        run: |
+          set -euo pipefail
+          for _ in {1..40}; do
+            if redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "redis service not reachable on 127.0.0.1:6379" >&2
+          exit 1
 
       - name: Run Rust tests
         run: |
@@ -129,6 +143,8 @@ jobs:
     services:
       redis:
         image: redis:8.2-alpine
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -158,6 +174,18 @@ jobs:
         run: |
           rustc --version
           cargo --version
+
+      - name: Wait for Redis
+        run: |
+          set -euo pipefail
+          for _ in {1..40}; do
+            if redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "redis service not reachable on 127.0.0.1:6379" >&2
+          exit 1
 
       - name: Build
         run: cargo build --release --workspace

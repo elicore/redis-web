@@ -73,6 +73,7 @@ pub struct redisReadTask {
 }
 
 #[repr(C)]
+#[allow(non_snake_case)]
 pub struct redisReplyObjectFunctions {
     pub createString:
         Option<unsafe extern "C" fn(*const redisReadTask, *mut c_char, size_t) -> *mut c_void>,
@@ -534,7 +535,6 @@ unsafe fn parse_and_build(
                 return Err(ParseError::Protocol("failed to create reply object".to_string()));
             }
 
-            task.obj = obj;
             Ok((obj, consumed))
         }
         b'$' | b'=' => {
@@ -561,7 +561,6 @@ unsafe fn parse_and_build(
                 if obj.is_null() {
                     return Err(ParseError::Protocol("failed to create nil object".to_string()));
                 }
-                task.obj = obj;
                 return Ok((obj, header));
             }
 
@@ -581,7 +580,6 @@ unsafe fn parse_and_build(
                 return Err(ParseError::Protocol("failed to create string object".to_string()));
             }
 
-            task.obj = obj;
             Ok((obj, header + len + 2))
         }
         b'#' => {
@@ -612,7 +610,6 @@ unsafe fn parse_and_build(
                 return Err(ParseError::Protocol("failed to create bool object".to_string()));
             }
 
-            task.obj = obj;
             Ok((obj, 4))
         }
         b'_' => {
@@ -637,7 +634,6 @@ unsafe fn parse_and_build(
                 return Err(ParseError::Protocol("failed to create nil object".to_string()));
             }
 
-            task.obj = obj;
             Ok((obj, 3))
         }
         b'*' | b'~' | b'>' | b'|' | b'%' => {
@@ -659,7 +655,6 @@ unsafe fn parse_and_build(
                 if obj.is_null() {
                     return Err(ParseError::Protocol("failed to create nil object".to_string()));
                 }
-                nil_task.obj = obj;
                 return Ok((obj, header));
             }
 

@@ -33,6 +33,12 @@ compat_redispy_build_hiredis:
 compat_redispy_test:
 	./subprojects/redispy-hiredis-compat/scripts/run-redispy-tests.sh
 
+compat_redispy_audit:
+	./subprojects/redispy-hiredis-compat/scripts/audit-hiredis-symbols.sh
+
+compat_redispy_regression:
+	./subprojects/redispy-hiredis-compat/scripts/test-setup-test-env.sh
+
 clean:
 	cargo clean
 
@@ -72,4 +78,4 @@ ci_local_linux_arm:
 
 ci_local: ci_local_linux ci_local_linux_arm
 
-.PHONY: all build build_hiredis_compat test_hiredis_compat_fixture bench_hiredis_compat compat_redispy_bootstrap compat_redispy_build_hiredis compat_redispy_test clean install test perftest test_all ci_local ci_local_linux ci_local_linux_arm
+.PHONY: all build build_hiredis_compat test_hiredis_compat_fixture bench_hiredis_compat compat_redispy_bootstrap compat_redispy_build_hiredis compat_redispy_test compat_redispy_audit compat_redispy_regression clean install test perftest test_all ci_local ci_local_linux ci_local_linux_arm

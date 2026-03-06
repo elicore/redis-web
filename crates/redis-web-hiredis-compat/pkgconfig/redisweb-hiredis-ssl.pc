@@ -4,8 +4,10 @@ libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 pkgincludedir=${includedir}/hiredis
 
-Name: redisweb-hiredis
-Description: redis-web hiredis compatibility shim
+Name: redisweb-hiredis-ssl
+Description: SSL support for redis-web hiredis compatibility shim
 Version: 1.3.0
-Libs: -L${libdir} -lredisweb_hiredis
+Requires: redisweb-hiredis
+Libs: -L${libdir} -lredisweb_hiredis_ssl
+Libs.private: -lssl -lcrypto
 Cflags: -I${pkgincludedir} -I${includedir} -D_FILE_OFFSET_BITS=64

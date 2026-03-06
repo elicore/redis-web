@@ -14,6 +14,7 @@ if rg -n "ERR_UNSUPPORTED" "$LIB_RS" >/dev/null; then
 fi
 
 "$SCRIPT_DIR/setup-test-env.sh"
+set_hiredis_build_env
 
 if [[ "${MANAGED_REDIS:-1}" == "1" ]]; then
   "$SCRIPT_DIR/start-redis-test-env.sh"

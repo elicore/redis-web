@@ -8,10 +8,13 @@ MANAGED_REDIS="${MANAGED_REDIS:-1}"
 
 "$ROOT_DIR/scripts/build-hiredis-compat.sh" "$DIST_DIR"
 
+RPATH_FLAG="-Wl,-rpath,$DIST_DIR/lib"
+
 cc \
   -I"$DIST_DIR/include" \
   "$CRATE_DIR/tests/fixtures/runtime_command_roundtrip.c" \
   -L"$DIST_DIR/lib" \
+  "$RPATH_FLAG" \
   -lhiredis \
   -o "$DIST_DIR/runtime_roundtrip"
 

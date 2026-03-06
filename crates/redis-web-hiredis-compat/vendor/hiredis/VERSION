@@ -1,0 +1,12 @@
+Upstream hiredis snapshot for fallback builds.
+
+Source repository: https://github.com/redis/hiredis
+Version tag: v1.3.0
+Commit: ccad7ebaf99310957004661d1c5f82d2a33ebd10
+
+Refresh process:
+1. Update submodules: make compat_redispy_bootstrap
+2. Copy the canonical file set from
+   subprojects/redispy-hiredis-compat/vendor/hiredis-py/vendor/hiredis
+   into this directory.
+3. Re-run compatibility audits/tests.

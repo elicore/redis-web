@@ -11,6 +11,13 @@ Current status:
 - redis-py/hiredis-py runtime behavior is validated in
   `make compat_redispy_test` and runtime matrix targets.
 
+Build source selection:
+- `build.rs` prefers the pinned submodule source tree at
+  `subprojects/redispy-hiredis-compat/vendor/hiredis-py/vendor/hiredis`.
+- If that tree is not available, it falls back to
+  `crates/redis-web-hiredis-compat/vendor/hiredis`.
+- Override source selection with `REDIS_WEB_HIREDIS_SRC_DIR=/absolute/path`.
+
 Headers:
 - `include/hiredis/hiredis.h`
 - `include/hiredis/read.h`

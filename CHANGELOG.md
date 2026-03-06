@@ -72,6 +72,8 @@ All notable changes to this project will be documented in this file.
 
 - *(README)* Enhance documentation with detailed features, usage examples, and workspace structure ([53bb096](https://github.com/elicore/redis-web/commit/53bb0963cbe6ef2f2a3423a3cf3eed8a6ae40492))
 
+- *(changelog)* Update CHANGELOG.md ([d310bf2](https://github.com/elicore/redis-web/commit/d310bf29d51d8f7f644edbbddcc9da76d59614a2))
+
 
 ### Features
 

@@ -44,6 +44,7 @@ From repository root:
 make compat_redispy_bootstrap
 make compat_redispy_build_hiredis
 make compat_redispy_audit
+make compat_ssl_audit
 make compat_redispy_regression
 make compat_redispy_test
 ```
@@ -178,6 +179,6 @@ To make upstream parity diffs fail the audit, set `STRICT_UPSTREAM_PARITY=1`.
 - Library names are ABI-compatible (`libhiredis`).
 - Symbol and header API parity is full for the pinned upstream version in this harness.
 - Runtime behavior parity is provided by upstream hiredis C runtime in staged artifacts.
-- Current intentional non-parity: SSL helper symbols remain stubbed unless SSL runtime is explicitly enabled.
+- SSL parity is provided via staged `libhiredis_ssl` (upstream split-library model) when `HIREDIS_COMPAT_ENABLE_SSL=1` (default).
 
 If integrating a new hiredis-based consumer, treat parser/symbol linkage as the first gate, then validate behavior with that library's native test suite.

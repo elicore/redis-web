@@ -52,6 +52,7 @@ The local harness in this repository automates this flow:
 make compat_redispy_bootstrap
 make compat_redispy_build_hiredis
 make compat_redispy_audit
+make compat_ssl_audit
 make compat_redispy_regression
 make compat_redispy_test
 ```
@@ -123,7 +124,8 @@ Optional audit hardening:
 
 - `make compat_redispy_audit` runs:
   - hiredis-py extension required-symbol gate (hard fail on missing).
-  - upstream hiredis export and header API parity reports.
+  - upstream hiredis/hiredis_ssl export and header API parity reports.
+- `make compat_ssl_audit` additionally validates staged SSL symbol/runtime linkage.
 - Set `STRICT_UPSTREAM_PARITY=1` to hard-fail if any upstream parity gaps are detected.
 
 ## Compatibility limits
@@ -131,7 +133,7 @@ Optional audit hardening:
 This integration now provides full symbol/header parity and runtime parity by using upstream hiredis runtime sources for staged artifacts.
 
 - Supported: redis-py + hiredis-py compatibility path, strict upstream audit parity, and runtime command/transport behavior.
-- Intentional current non-parity: SSL helper symbols remain stubbed unless SSL runtime is explicitly enabled.
+- SSL parity is provided via staged `libhiredis_ssl` using upstream hiredis split-library semantics.
 
 For implementation-level details and local harness usage, see:
 

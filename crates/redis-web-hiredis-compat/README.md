@@ -18,6 +18,8 @@ Headers:
 - `include/hiredis/sds.h`
 - `include/hiredis/async.h`
 - `include/hiredis/net.h`
+- `include/hiredis/sockcompat.h`
+- `include/hiredis/hiredis_ssl.h`
 
 pkg-config:
 - `pkgconfig/hiredis.pc`

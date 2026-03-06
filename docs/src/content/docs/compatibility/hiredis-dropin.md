@@ -42,7 +42,7 @@ Current implementation notes:
 
 - Staged `libhiredis` artifacts provide runtime parity by building upstream hiredis core + async C runtime sources used by this repository harness.
 - Strict symbol/header parity against pinned upstream hiredis is validated by `STRICT_UPSTREAM_PARITY=1 make compat_redispy_audit`.
-- SSL helper symbols remain intentionally stubbed unless SSL runtime support is explicitly enabled.
+- SSL parity is provided via staged `libhiredis_ssl` using upstream hiredis split-library semantics.
 
 ## `compat_hiredis` configuration
 

@@ -2,9 +2,10 @@ prefix=/usr/local
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
+pkgincludedir=${includedir}/hiredis
 
 Name: hiredis
-Description: redis-web hiredis compatibility shim
-Version: 0.1.0
+Description: Minimalistic C client library for Redis.
+Version: 1.3.0
 Libs: -L${libdir} -lhiredis
-Cflags: -I${includedir}
+Cflags: -I${pkgincludedir} -I${includedir} -D_FILE_OFFSET_BITS=64

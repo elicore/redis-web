@@ -28,38 +28,46 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HIREDIS_ALLOC_H
-#define HIREDIS_ALLOC_H
+#include "fmacros.h"
+#include "alloc.h"
+#include <string.h>
+#include <stdlib.h>
 
-#include <stddef.h> /* for size_t */
-#include <stdint.h>
+hiredisAllocFuncs hiredisAllocFns = {
+    .mallocFn = malloc,
+    .callocFn = calloc,
+    .reallocFn = realloc,
+    .strdupFn = strdup,
+    .freeFn = free,
+};
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/* Override hiredis' allocators with ones supplied by the user */
+hiredisAllocFuncs hiredisSetAllocators(hiredisAllocFuncs *override) {
+    hiredisAllocFuncs orig = hiredisAllocFns;
 
-/* Structure pointing to our actually configured allocators */
-typedef struct hiredisAllocFuncs {
-    void *(*mallocFn)(size_t);
-    void *(*callocFn)(size_t,size_t);
-    void *(*reallocFn)(void*,size_t);
-    char *(*strdupFn)(const char*);
-    void (*freeFn)(void*);
-} hiredisAllocFuncs;
+    hiredisAllocFns = *override;
 
-hiredisAllocFuncs hiredisSetAllocators(hiredisAllocFuncs *ha);
-void hiredisResetAllocators(void);
+    return orig;
+}
 
-#ifndef _WIN32
+/* Reset allocators to use libc defaults */
+void hiredisResetAllocators(void) {
+    hiredisAllocFns = (hiredisAllocFuncs) {
+        .mallocFn = malloc,
+        .callocFn = calloc,
+        .reallocFn = realloc,
+        .strdupFn = strdup,
+        .freeFn = free,
+    };
+}
 
-/* Hiredis' configured allocator function pointer struct */
-extern hiredisAllocFuncs hiredisAllocFns;
+#ifdef _WIN32
 
-static inline void *hi_malloc(size_t size) {
+void *hi_malloc(size_t size) {
     return hiredisAllocFns.mallocFn(size);
 }
 
-static inline void *hi_calloc(size_t nmemb, size_t size) {
+void *hi_calloc(size_t nmemb, size_t size) {
     /* Overflow check as the user can specify any arbitrary allocator */
     if (SIZE_MAX / size < nmemb)
         return NULL;
@@ -67,30 +75,16 @@ static inline void *hi_calloc(size_t nmemb, size_t size) {
     return hiredisAllocFns.callocFn(nmemb, size);
 }
 
-static inline void *hi_realloc(void *ptr, size_t size) {
+void *hi_realloc(void *ptr, size_t size) {
     return hiredisAllocFns.reallocFn(ptr, size);
 }
 
-static inline char *hi_strdup(const char *str) {
+char *hi_strdup(const char *str) {
     return hiredisAllocFns.strdupFn(str);
 }
 
-static inline void hi_free(void *ptr) {
+void hi_free(void *ptr) {
     hiredisAllocFns.freeFn(ptr);
 }
 
-#else
-
-void *hi_malloc(size_t size);
-void *hi_calloc(size_t nmemb, size_t size);
-void *hi_realloc(void *ptr, size_t size);
-char *hi_strdup(const char *str);
-void hi_free(void *ptr);
-
 #endif
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* HIREDIS_ALLOC_H */

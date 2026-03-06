@@ -25,6 +25,16 @@ fi
 
 set_hiredis_build_env
 
-"$PYTHON" "$SCRIPT_DIR/verify-hiredis-active.py"
+VERIFY_HIREDIS_ACTIVE="${VERIFY_HIREDIS_ACTIVE:-0}"
+if [[ "$VERIFY_HIREDIS_ACTIVE" == "1" ]]; then
+  VERIFY_HIREDIS_HOST="${VERIFY_HIREDIS_HOST:-127.0.0.1}"
+  VERIFY_HIREDIS_PORT="${VERIFY_HIREDIS_PORT:-6379}"
+  VERIFY_HIREDIS_DB="${VERIFY_HIREDIS_DB:-0}"
+  VERIFY_HIREDIS_SCRIPT="${VERIFY_HIREDIS_SCRIPT:-$SCRIPT_DIR/verify-hiredis-active.py}"
+  "$PYTHON" "$VERIFY_HIREDIS_SCRIPT" \
+    --host "$VERIFY_HIREDIS_HOST" \
+    --port "$VERIFY_HIREDIS_PORT" \
+    --db "$VERIFY_HIREDIS_DB"
+fi
 
 echo "Test environment ready: $VENV_DIR"

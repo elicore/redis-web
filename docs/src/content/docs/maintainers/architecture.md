@@ -31,9 +31,13 @@ cargo test -p redis-web --tests --no-run
 make test
 make test_integration
 make bench_config_compare SPEC=docs/examples/config/redis-web.bench.yaml
+make bench_config_compare SPEC=docs/examples/config/redis-web.use-cases.bench.yaml
 ```
 
 CI also runs docs build/link checks and rename guard checks.
+
+For realistic deployment-oriented benchmark scenarios, see
+[Benchmark Catalog](/maintainers/benchmark-catalog/).
 
 ## Release and signing
 

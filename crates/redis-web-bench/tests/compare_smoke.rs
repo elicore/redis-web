@@ -185,7 +185,17 @@ async fn compare_smoke_writes_json_and_markdown_artifacts() {
         .unwrap();
     assert_eq!(grpc_suite["status"]["kind"], "completed");
 
+    let baseline = runs.iter().find(|run| run["name"] == "baseline").unwrap();
+    let read_heavy_suite = baseline["suites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|suite| suite["suite"] == "read_heavy_cache")
+        .unwrap();
+    assert_eq!(read_heavy_suite["status"]["kind"], "completed");
+
     let report = fs::read_to_string(report_path).unwrap();
+    assert!(report.contains("read_heavy_cache"));
     assert!(report.contains("websocket_commands"));
     assert!(report.contains("streaming_pubsub"));
     assert!(report.contains("runtime_worker_threads"));

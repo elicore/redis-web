@@ -33,6 +33,7 @@ const STREAM_DELIVERY_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) async fn benchmark_variant(
     context: VariantRunContext,
     common_commands: &CommandSuiteConfig,
+    read_heavy_cache: &CommandSuiteConfig,
     websocket_commands: &WebSocketSuiteConfig,
     streaming: &StreamingSuiteConfig,
     workspace_root: &std::path::Path,
@@ -43,6 +44,8 @@ pub(crate) async fn benchmark_variant(
 
     let suites = vec![
         run_common_commands_suite(&context.name, &context.config, &server, common_commands).await?,
+        run_read_heavy_cache_suite(&context.name, &context.config, &server, read_heavy_cache)
+            .await?,
         run_websocket_commands_suite(&context.name, &context.config, &server, websocket_commands)
             .await?,
         run_streaming_suite(&context.name, &context.config, &server, streaming).await?,
@@ -81,6 +84,30 @@ async fn run_common_commands_suite(
 
     Ok(SuiteResult {
         suite: "common_commands".to_string(),
+        status: SuiteStatus::Completed,
+        workloads,
+    })
+}
+
+async fn run_read_heavy_cache_suite(
+    variant_name: &str,
+    config: &Config,
+    server: &LaunchedServer,
+    suite: &CommandSuiteConfig,
+) -> Result<SuiteResult> {
+    seed_read_heavy_cache_data(variant_name, config, suite).await?;
+
+    let workloads = match config.transport_mode {
+        TransportMode::Rest => {
+            run_http_read_heavy_cache(variant_name, server.http_base_url(), suite).await?
+        }
+        TransportMode::Grpc => {
+            run_grpc_read_heavy_cache(variant_name, server.grpc_endpoint(), suite).await?
+        }
+    };
+
+    Ok(SuiteResult {
+        suite: "read_heavy_cache".to_string(),
         status: SuiteStatus::Completed,
         workloads,
     })
@@ -296,6 +323,112 @@ async fn run_grpc_common_commands(
     ])
 }
 
+async fn run_http_read_heavy_cache(
+    variant_name: &str,
+    base_url: String,
+    suite: &CommandSuiteConfig,
+) -> Result<Vec<WorkloadResult>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("failed to build HTTP client")?;
+
+    let hot_key = read_heavy_hot_key(variant_name);
+    for _ in 0..suite.warmup_ops {
+        http_get_once(&client, &base_url, &hot_key).await?;
+    }
+    let hot_get_metrics = measure_http_parallel(suite, {
+        let client = client.clone();
+        let base_url = base_url.clone();
+        let hot_key = hot_key.clone();
+        move |_worker, _idx| {
+            let client = client.clone();
+            let base_url = base_url.clone();
+            let hot_key = hot_key.clone();
+            async move { http_get_once(&client, &base_url, &hot_key).await }
+        }
+    })
+    .await?;
+
+    for idx in 0..suite.warmup_ops {
+        http_get_once(
+            &client,
+            &base_url,
+            &read_heavy_distributed_key(variant_name, idx),
+        )
+        .await?;
+    }
+    let distributed_get_metrics = measure_http_parallel(suite, {
+        let client = client.clone();
+        let base_url = base_url.clone();
+        let variant_name = variant_name.to_string();
+        move |_worker, idx| {
+            let client = client.clone();
+            let base_url = base_url.clone();
+            let variant_name = variant_name.clone();
+            async move {
+                http_get_once(
+                    &client,
+                    &base_url,
+                    &read_heavy_distributed_key(&variant_name, idx),
+                )
+                .await
+            }
+        }
+    })
+    .await?;
+
+    for idx in 0..suite.warmup_ops {
+        http_mget_once(&client, &base_url, &read_heavy_mget_keys(variant_name, idx)).await?;
+    }
+    let mget_metrics = measure_http_parallel(suite, {
+        let client = client.clone();
+        let base_url = base_url.clone();
+        let variant_name = variant_name.to_string();
+        move |_worker, idx| {
+            let client = client.clone();
+            let base_url = base_url.clone();
+            let variant_name = variant_name.clone();
+            async move {
+                http_mget_once(
+                    &client,
+                    &base_url,
+                    &read_heavy_mget_keys(&variant_name, idx),
+                )
+                .await
+            }
+        }
+    })
+    .await?;
+
+    let hash_key = read_heavy_hash_key(variant_name);
+    let hash_fields = read_heavy_hash_fields();
+    for _ in 0..suite.warmup_ops {
+        http_hmget_once(&client, &base_url, &hash_key, &hash_fields).await?;
+    }
+    let hash_metrics = measure_http_parallel(suite, {
+        let client = client.clone();
+        let base_url = base_url.clone();
+        let hash_key = hash_key.clone();
+        let hash_fields = hash_fields.clone();
+        move |_worker, _idx| {
+            let client = client.clone();
+            let base_url = base_url.clone();
+            let hash_key = hash_key.clone();
+            let hash_fields = hash_fields.clone();
+            async move { http_hmget_once(&client, &base_url, &hash_key, &hash_fields).await }
+        }
+    })
+    .await?;
+
+    Ok(vec![
+        completed_workload("get_hot_key", hot_get_metrics),
+        completed_workload("get_distributed_key", distributed_get_metrics),
+        completed_workload("mget_4", mget_metrics),
+        completed_workload("hmget_4_fields", hash_metrics),
+    ])
+}
+
 async fn measure_grpc_ping_parallel(
     suite: &CommandSuiteConfig,
     endpoint: String,
@@ -406,6 +539,277 @@ async fn measure_grpc_set_get_parallel(
     ))
 }
 
+async fn run_grpc_read_heavy_cache(
+    variant_name: &str,
+    endpoint: String,
+    suite: &CommandSuiteConfig,
+) -> Result<Vec<WorkloadResult>> {
+    let hot_key = read_heavy_hot_key(variant_name);
+    {
+        let mut client = RedisGatewayClient::connect(endpoint.clone()).await?;
+        for _ in 0..suite.warmup_ops {
+            grpc_get_once(&mut client, &hot_key).await?;
+        }
+    }
+    let hot_get_metrics = measure_grpc_get_parallel(suite, endpoint.clone(), hot_key).await?;
+
+    {
+        let mut client = RedisGatewayClient::connect(endpoint.clone()).await?;
+        for idx in 0..suite.warmup_ops {
+            grpc_get_once(&mut client, &read_heavy_distributed_key(variant_name, idx)).await?;
+        }
+    }
+    let distributed_get_metrics =
+        measure_grpc_distributed_get_parallel(suite, endpoint.clone(), variant_name.to_string())
+            .await?;
+
+    {
+        let mut client = RedisGatewayClient::connect(endpoint.clone()).await?;
+        for idx in 0..suite.warmup_ops {
+            grpc_mget_once(&mut client, &read_heavy_mget_keys(variant_name, idx)).await?;
+        }
+    }
+    let mget_metrics =
+        measure_grpc_mget_parallel(suite, endpoint.clone(), variant_name.to_string()).await?;
+
+    let hash_key = read_heavy_hash_key(variant_name);
+    let hash_fields = read_heavy_hash_fields();
+    {
+        let mut client = RedisGatewayClient::connect(endpoint.clone()).await?;
+        for _ in 0..suite.warmup_ops {
+            grpc_hmget_once(&mut client, &hash_key, &hash_fields).await?;
+        }
+    }
+    let hash_metrics = measure_grpc_hmget_parallel(suite, endpoint, hash_key, hash_fields).await?;
+
+    Ok(vec![
+        completed_workload("get_hot_key", hot_get_metrics),
+        completed_workload("get_distributed_key", distributed_get_metrics),
+        completed_workload("mget_4", mget_metrics),
+        completed_workload("hmget_4_fields", hash_metrics),
+    ])
+}
+
+async fn measure_grpc_get_parallel(
+    suite: &CommandSuiteConfig,
+    endpoint: String,
+    key: String,
+) -> Result<MetricSummary> {
+    let counter = Arc::new(AtomicU64::new(0));
+    let latencies = Arc::new(tokio::sync::Mutex::new(Vec::with_capacity(
+        suite.measured_ops as usize,
+    )));
+    let error_count = Arc::new(AtomicU64::new(0));
+    let mut join_set = JoinSet::new();
+    let start = Instant::now();
+
+    for _worker in 0..suite.concurrency {
+        let endpoint = endpoint.clone();
+        let key = key.clone();
+        let counter = counter.clone();
+        let latencies = latencies.clone();
+        let error_count = error_count.clone();
+        let measured_ops = suite.measured_ops;
+        join_set.spawn(async move {
+            let mut client = RedisGatewayClient::connect(endpoint).await?;
+            loop {
+                let idx = counter.fetch_add(1, Ordering::Relaxed);
+                if idx >= measured_ops {
+                    break;
+                }
+                let op_start = Instant::now();
+                match grpc_get_once(&mut client, &key).await {
+                    Ok(()) => latencies.lock().await.push(op_start.elapsed()),
+                    Err(_) => {
+                        error_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            Result::<()>::Ok(())
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        result.context("gRPC worker task panicked")??;
+    }
+
+    let latencies = Arc::into_inner(latencies)
+        .expect("latencies still referenced")
+        .into_inner();
+    Ok(summarize_metrics(
+        latencies,
+        start.elapsed(),
+        suite.measured_ops,
+        error_count.load(Ordering::Relaxed),
+    ))
+}
+
+async fn measure_grpc_distributed_get_parallel(
+    suite: &CommandSuiteConfig,
+    endpoint: String,
+    variant_name: String,
+) -> Result<MetricSummary> {
+    let counter = Arc::new(AtomicU64::new(0));
+    let latencies = Arc::new(tokio::sync::Mutex::new(Vec::with_capacity(
+        suite.measured_ops as usize,
+    )));
+    let error_count = Arc::new(AtomicU64::new(0));
+    let mut join_set = JoinSet::new();
+    let start = Instant::now();
+
+    for _worker in 0..suite.concurrency {
+        let endpoint = endpoint.clone();
+        let variant_name = variant_name.clone();
+        let counter = counter.clone();
+        let latencies = latencies.clone();
+        let error_count = error_count.clone();
+        let measured_ops = suite.measured_ops;
+        join_set.spawn(async move {
+            let mut client = RedisGatewayClient::connect(endpoint).await?;
+            loop {
+                let idx = counter.fetch_add(1, Ordering::Relaxed);
+                if idx >= measured_ops {
+                    break;
+                }
+                let key = read_heavy_distributed_key(&variant_name, idx);
+                let op_start = Instant::now();
+                match grpc_get_once(&mut client, &key).await {
+                    Ok(()) => latencies.lock().await.push(op_start.elapsed()),
+                    Err(_) => {
+                        error_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            Result::<()>::Ok(())
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        result.context("gRPC worker task panicked")??;
+    }
+
+    let latencies = Arc::into_inner(latencies)
+        .expect("latencies still referenced")
+        .into_inner();
+    Ok(summarize_metrics(
+        latencies,
+        start.elapsed(),
+        suite.measured_ops,
+        error_count.load(Ordering::Relaxed),
+    ))
+}
+
+async fn measure_grpc_mget_parallel(
+    suite: &CommandSuiteConfig,
+    endpoint: String,
+    variant_name: String,
+) -> Result<MetricSummary> {
+    let counter = Arc::new(AtomicU64::new(0));
+    let latencies = Arc::new(tokio::sync::Mutex::new(Vec::with_capacity(
+        suite.measured_ops as usize,
+    )));
+    let error_count = Arc::new(AtomicU64::new(0));
+    let mut join_set = JoinSet::new();
+    let start = Instant::now();
+
+    for _worker in 0..suite.concurrency {
+        let endpoint = endpoint.clone();
+        let variant_name = variant_name.clone();
+        let counter = counter.clone();
+        let latencies = latencies.clone();
+        let error_count = error_count.clone();
+        let measured_ops = suite.measured_ops;
+        join_set.spawn(async move {
+            let mut client = RedisGatewayClient::connect(endpoint).await?;
+            loop {
+                let idx = counter.fetch_add(1, Ordering::Relaxed);
+                if idx >= measured_ops {
+                    break;
+                }
+                let keys = read_heavy_mget_keys(&variant_name, idx);
+                let op_start = Instant::now();
+                match grpc_mget_once(&mut client, &keys).await {
+                    Ok(()) => latencies.lock().await.push(op_start.elapsed()),
+                    Err(_) => {
+                        error_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            Result::<()>::Ok(())
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        result.context("gRPC worker task panicked")??;
+    }
+
+    let latencies = Arc::into_inner(latencies)
+        .expect("latencies still referenced")
+        .into_inner();
+    Ok(summarize_metrics(
+        latencies,
+        start.elapsed(),
+        suite.measured_ops,
+        error_count.load(Ordering::Relaxed),
+    ))
+}
+
+async fn measure_grpc_hmget_parallel(
+    suite: &CommandSuiteConfig,
+    endpoint: String,
+    hash_key: String,
+    fields: [String; 4],
+) -> Result<MetricSummary> {
+    let counter = Arc::new(AtomicU64::new(0));
+    let latencies = Arc::new(tokio::sync::Mutex::new(Vec::with_capacity(
+        suite.measured_ops as usize,
+    )));
+    let error_count = Arc::new(AtomicU64::new(0));
+    let mut join_set = JoinSet::new();
+    let start = Instant::now();
+
+    for _worker in 0..suite.concurrency {
+        let endpoint = endpoint.clone();
+        let hash_key = hash_key.clone();
+        let fields = fields.clone();
+        let counter = counter.clone();
+        let latencies = latencies.clone();
+        let error_count = error_count.clone();
+        let measured_ops = suite.measured_ops;
+        join_set.spawn(async move {
+            let mut client = RedisGatewayClient::connect(endpoint).await?;
+            loop {
+                let idx = counter.fetch_add(1, Ordering::Relaxed);
+                if idx >= measured_ops {
+                    break;
+                }
+                let op_start = Instant::now();
+                match grpc_hmget_once(&mut client, &hash_key, &fields).await {
+                    Ok(()) => latencies.lock().await.push(op_start.elapsed()),
+                    Err(_) => {
+                        error_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            Result::<()>::Ok(())
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        result.context("gRPC worker task panicked")??;
+    }
+
+    let latencies = Arc::into_inner(latencies)
+        .expect("latencies still referenced")
+        .into_inner();
+    Ok(summarize_metrics(
+        latencies,
+        start.elapsed(),
+        suite.measured_ops,
+        error_count.load(Ordering::Relaxed),
+    ))
+}
+
 async fn grpc_ping_once(client: &mut RedisGatewayClient<tonic::transport::Channel>) -> Result<()> {
     client
         .execute(CommandRequest {
@@ -436,6 +840,171 @@ async fn grpc_set_get_once(
             args: vec![key.as_bytes().to_vec()],
         })
         .await?;
+    Ok(())
+}
+
+async fn grpc_get_once(
+    client: &mut RedisGatewayClient<tonic::transport::Channel>,
+    key: &str,
+) -> Result<()> {
+    grpc_execute_once(client, "GET", vec![key.as_bytes().to_vec()]).await
+}
+
+async fn grpc_mget_once(
+    client: &mut RedisGatewayClient<tonic::transport::Channel>,
+    keys: &[String; 4],
+) -> Result<()> {
+    grpc_execute_once(
+        client,
+        "MGET",
+        keys.iter().map(|key| key.as_bytes().to_vec()).collect(),
+    )
+    .await
+}
+
+async fn grpc_hmget_once(
+    client: &mut RedisGatewayClient<tonic::transport::Channel>,
+    hash_key: &str,
+    fields: &[String; 4],
+) -> Result<()> {
+    let mut args = Vec::with_capacity(1 + fields.len());
+    args.push(hash_key.as_bytes().to_vec());
+    args.extend(fields.iter().map(|field| field.as_bytes().to_vec()));
+    grpc_execute_once(client, "HMGET", args).await
+}
+
+async fn grpc_execute_once(
+    client: &mut RedisGatewayClient<tonic::transport::Channel>,
+    command: &str,
+    args: Vec<Vec<u8>>,
+) -> Result<()> {
+    client
+        .execute(CommandRequest {
+            command: command.to_string(),
+            database: None,
+            args,
+        })
+        .await?;
+    Ok(())
+}
+
+async fn seed_read_heavy_cache_data(
+    variant_name: &str,
+    config: &Config,
+    suite: &CommandSuiteConfig,
+) -> Result<()> {
+    let mut conn = redis_connection(config).await?;
+    let seed_count = suite.warmup_ops.max(suite.measured_ops);
+
+    redis::cmd("SET")
+        .arg(read_heavy_hot_key(variant_name))
+        .arg("hot-cache-value")
+        .query_async::<String>(&mut conn)
+        .await
+        .context("failed to seed hot cache key")?;
+
+    for idx in 0..seed_count {
+        redis::cmd("SET")
+            .arg(read_heavy_distributed_key(variant_name, idx))
+            .arg(format!("value-{idx}"))
+            .query_async::<String>(&mut conn)
+            .await
+            .context("failed to seed distributed cache key")?;
+
+        let mget_keys = read_heavy_mget_keys(variant_name, idx);
+        for (slot, key) in mget_keys.iter().enumerate() {
+            redis::cmd("SET")
+                .arg(key)
+                .arg(format!("mget-value-{idx}-{slot}"))
+                .query_async::<String>(&mut conn)
+                .await
+                .context("failed to seed multi-key cache entry")?;
+        }
+    }
+
+    let hash_key = read_heavy_hash_key(variant_name);
+    let hash_fields = read_heavy_hash_fields();
+    let mut hset = redis::cmd("HSET");
+    hset.arg(&hash_key);
+    for (idx, field) in hash_fields.iter().enumerate() {
+        hset.arg(field).arg(format!("field-value-{idx}"));
+    }
+    hset.query_async::<usize>(&mut conn)
+        .await
+        .context("failed to seed hash cache entry")?;
+
+    Ok(())
+}
+
+fn read_heavy_hot_key(variant_name: &str) -> String {
+    format!("redis-web-bench:{variant_name}:cache:hot")
+}
+
+fn read_heavy_distributed_key(variant_name: &str, idx: u64) -> String {
+    format!("redis-web-bench:{variant_name}:cache:distributed:{idx}")
+}
+
+fn read_heavy_mget_keys(variant_name: &str, idx: u64) -> [String; 4] {
+    [
+        format!("redis-web-bench:{variant_name}:cache:mget:{idx}:0"),
+        format!("redis-web-bench:{variant_name}:cache:mget:{idx}:1"),
+        format!("redis-web-bench:{variant_name}:cache:mget:{idx}:2"),
+        format!("redis-web-bench:{variant_name}:cache:mget:{idx}:3"),
+    ]
+}
+
+fn read_heavy_hash_key(variant_name: &str) -> String {
+    format!("redis-web-bench:{variant_name}:cache:hash")
+}
+
+fn read_heavy_hash_fields() -> [String; 4] {
+    [
+        "field0".to_string(),
+        "field1".to_string(),
+        "field2".to_string(),
+        "field3".to_string(),
+    ]
+}
+
+async fn http_get_once(client: &reqwest::Client, base_url: &str, key: &str) -> Result<()> {
+    client
+        .get(format!("{base_url}/GET/{key}.raw"))
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn http_mget_once(
+    client: &reqwest::Client,
+    base_url: &str,
+    keys: &[String; 4],
+) -> Result<()> {
+    client
+        .get(format!(
+            "{base_url}/MGET/{}/{}/{}/{}.raw",
+            keys[0], keys[1], keys[2], keys[3]
+        ))
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn http_hmget_once(
+    client: &reqwest::Client,
+    base_url: &str,
+    hash_key: &str,
+    fields: &[String; 4],
+) -> Result<()> {
+    client
+        .get(format!(
+            "{base_url}/HMGET/{}/{}/{}/{}/{}.raw",
+            hash_key, fields[0], fields[1], fields[2], fields[3]
+        ))
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }
 

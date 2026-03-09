@@ -36,6 +36,7 @@ pub(crate) struct ResolvedSpec {
 #[derive(Clone, Debug)]
 pub struct SuiteRegistry {
     pub(crate) common_commands: CommandSuiteConfig,
+    pub(crate) read_heavy_cache: CommandSuiteConfig,
     pub(crate) websocket_commands: WebSocketSuiteConfig,
     pub(crate) streaming: StreamingSuiteConfig,
 }
@@ -70,6 +71,11 @@ impl SuiteRegistry {
                 measured_ops: 10_000,
                 concurrency: 32,
             },
+            read_heavy_cache: CommandSuiteConfig {
+                warmup_ops: 500,
+                measured_ops: 10_000,
+                concurrency: 32,
+            },
             websocket_commands: WebSocketSuiteConfig {
                 warmup_ops: 500,
                 measured_ops: 10_000,
@@ -87,6 +93,11 @@ impl SuiteRegistry {
     pub fn smoke() -> Self {
         Self {
             common_commands: CommandSuiteConfig {
+                warmup_ops: 5,
+                measured_ops: 20,
+                concurrency: 4,
+            },
+            read_heavy_cache: CommandSuiteConfig {
                 warmup_ops: 5,
                 measured_ops: 20,
                 concurrency: 4,

@@ -9,13 +9,14 @@ requirements instead of synthetic transport-only comparisons.
 The current `redis-web-bench` runner can measure three capability groups:
 
 - `common_commands`: REST and gRPC unary command latency/throughput
+- `read_heavy_cache`: REST and gRPC cache-like read workloads
 - `websocket_commands`: REST variants with `websockets = true`
 - `streaming_pubsub`: REST SSE and gRPC subscribe delivery
 
 Those suites are enough to benchmark transport choice, worker count, pool
 sizing, loopback-vs-service exposure, and realtime connection behavior. They do
-not yet model hot-key contention, queue control planes, or sorted-set heavy
-reads. Those gaps are listed at the end of this page.
+not yet model queue control planes, hot-key contention at extreme skew, or
+sorted-set heavy reads. Those gaps are listed at the end of this page.
 
 ## Runnable Use Cases
 
@@ -48,6 +49,7 @@ Config variants:
 What the current runner measures:
 
 - `common_commands`
+- `read_heavy_cache`
 - `streaming_pubsub` over SSE for fallback browser push
 
 ### 2. Browser Realtime Fan-Out
@@ -107,6 +109,7 @@ Config variants:
 What the current runner measures:
 
 - `common_commands` over gRPC
+- `read_heavy_cache` over gRPC
 - `streaming_pubsub` over gRPC subscribe
 
 ### 4. Local Sidecar for Legacy or Monolith Processes
@@ -132,6 +135,7 @@ Config variants:
 What the current runner measures:
 
 - `common_commands`
+- `read_heavy_cache`
 - `streaming_pubsub`
 
 ### 5. Telemetry / Event Ingest Gateway
@@ -160,12 +164,14 @@ Config variants:
 What the current runner measures:
 
 - `common_commands`
+- `read_heavy_cache`
 - `streaming_pubsub`
 
 Note:
 
-- The current runner does not yet include a write-heavy `INCR`/`HSET`/append
-  suite, so this case is still approximated by the generic command mix.
+- The current runner now covers the read side of this architecture well, but it
+  still needs a write-heavy `INCR`/`HSET`/append suite to benchmark producer
+  pressure directly.
 
 ### 6. Analytics or Leaderboard Read Service
 
@@ -189,11 +195,12 @@ Config variants:
 What the current runner measures:
 
 - `common_commands`
+- `read_heavy_cache`
 
 Note:
 
-- This is only partially covered today. A sorted-set or hot-key read suite is
-  still needed to benchmark leaderboard-heavy applications properly.
+- This is better covered now for string and hash reads, but a sorted-set suite
+  is still needed to benchmark leaderboard-heavy applications properly.
 
 ## Runnable Spec
 
@@ -212,21 +219,7 @@ make bench_config_compare SPEC=docs/examples/config/redis-web.use-cases.bench.ya
 These are the next suites worth implementing because they unlock realistic
 application-specific comparisons that the current v1 runner cannot make.
 
-### 1. Read-Heavy Cache Suite
-
-Operations:
-
-- `GET`
-- `MGET`
-- `HGET`
-- `HMGET`
-
-Why:
-
-- Covers edge cache and metadata-service traffic better than `PING` plus generic
-  `SET/GET`.
-
-### 2. Write-Heavy Ingest Suite
+### 1. Write-Heavy Ingest Suite
 
 Operations:
 
@@ -239,7 +232,7 @@ Why:
 
 - Represents telemetry, counters, and producer-heavy systems.
 
-### 3. Hot-Key Contention Suite
+### 2. Hot-Key Contention Suite
 
 Operations:
 
@@ -249,7 +242,7 @@ Why:
 
 - Models rate-limit keys, tenant-global flags, and leaderboard hot spots.
 
-### 4. Queue Control Plane Suite
+### 3. Queue Control Plane Suite
 
 Operations:
 
@@ -261,7 +254,7 @@ Why:
 
 - Covers worker fleets and job-processing systems.
 
-### 5. Leaderboard / Sorted-Set Suite
+### 4. Leaderboard / Sorted-Set Suite
 
 Operations:
 

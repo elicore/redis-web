@@ -77,6 +77,7 @@ pub async fn run_compare_with_registry(
             benchmark_variant(
                 context,
                 &registry.common_commands,
+                &registry.read_heavy_cache,
                 &registry.websocket_commands,
                 &registry.streaming,
                 &workspace_root,

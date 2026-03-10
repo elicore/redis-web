@@ -76,6 +76,10 @@ All notable changes to this project will be documented in this file.
 
 - *(changelog)* Update CHANGELOG.md ([0091314](https://github.com/elicore/redis-web/commit/0091314ca4310f27a8cb165481d79703dbace905))
 
+- Add benchmark use case catalog ([e937935](https://github.com/elicore/redis-web/commit/e937935931e47ceab4cc4bc07159cd68fd86f7d2))
+
+- *(changelog)* Update CHANGELOG.md ([1607d20](https://github.com/elicore/redis-web/commit/1607d20484522e50d4349108213dbd8c012d1983))
+
 
 ### Features
 
@@ -131,6 +135,8 @@ All notable changes to this project will be documented in this file.
 
 - Add config benchmark comparison tool ([023344d](https://github.com/elicore/redis-web/commit/023344d32ed5f3c14eaea453851dbae6fdf25cdc))
 
+- Add read-heavy cache benchmarks ([d7c28ce](https://github.com/elicore/redis-web/commit/d7c28ce304333edb74d41d559e9c407a04109703))
+
 
 ### Miscellaneous Tasks
 
@@ -157,6 +163,8 @@ All notable changes to this project will be documented in this file.
 - *(CI)* Add release-please configuration and manifest files for automated releases ([2b15918](https://github.com/elicore/redis-web/commit/2b1591838501bd2137e249cd0af09d09f22b7a6a))
 
 - *(CI)* Update GitHub Actions workflow to enhance Docker image metadata handling and signing process ([2fe7d43](https://github.com/elicore/redis-web/commit/2fe7d43d75ff06c4ba9f03907c8ecbcfdc3de197))
+
+- Add benchmark optimization investigation task ([08fef94](https://github.com/elicore/redis-web/commit/08fef94420b6ef1cef809033d876c544fe812c7b))
 
 
 ### Parity

@@ -82,6 +82,8 @@ All notable changes to this project will be documented in this file.
 
 - *(changelog)* Update CHANGELOG.md ([c3319ba](https://github.com/elicore/redis-web/commit/c3319ba6cbded80a61162ea317961d6b2b93da7a))
 
+- *(changelog)* Update CHANGELOG.md ([2725be6](https://github.com/elicore/redis-web/commit/2725be60cf25d5e6c21d40f3bc8bb6371b516269))
+
 
 ### Features
 
@@ -138,6 +140,8 @@ All notable changes to this project will be documented in this file.
 - Add config benchmark comparison tool ([023344d](https://github.com/elicore/redis-web/commit/023344d32ed5f3c14eaea453851dbae6fdf25cdc))
 
 - Add read-heavy cache benchmarks ([d7c28ce](https://github.com/elicore/redis-web/commit/d7c28ce304333edb74d41d559e9c407a04109703))
+
+- Add benchmark report charts and report regeneration ([eb56dc8](https://github.com/elicore/redis-web/commit/eb56dc80143177e22a8fbe832375efeefd9545f4))
 
 
 ### Miscellaneous Tasks

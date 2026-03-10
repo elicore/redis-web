@@ -52,6 +52,7 @@ pub(crate) fn render_markdown_report(results: &BenchmarkResults) -> String {
 
     for suite_name in suite_names {
         out.push_str(&format!("## {}\n\n", suite_name));
+        out.push_str(&render_suite_graphs(results, baseline, &suite_name));
         out.push_str("| Variant | Workload | p50 ms | Δ p50 | p95 ms | Δ p95 | p99 ms | Δ p99 | Throughput/s | Δ throughput | Errors | Notes |\n");
         out.push_str(
             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n",
@@ -106,6 +107,150 @@ pub(crate) fn render_markdown_report(results: &BenchmarkResults) -> String {
     }
 
     out
+}
+
+fn render_suite_graphs(
+    results: &BenchmarkResults,
+    baseline: Option<&VariantBenchmarkResult>,
+    suite_name: &str,
+) -> String {
+    let workload_names: BTreeSet<_> = results
+        .runs
+        .iter()
+        .filter_map(|run| run.suites.iter().find(|suite| suite.suite == suite_name))
+        .flat_map(|suite| suite.workloads.iter().map(|workload| workload.name.clone()))
+        .collect();
+
+    if workload_names.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    out.push_str("### Graphs\n\n");
+
+    for workload_name in workload_names {
+        let mut absolute_throughput = Vec::new();
+        let mut absolute_latency = Vec::new();
+        let mut throughput_pct = Vec::new();
+        let mut latency_pct = Vec::new();
+
+        let baseline_metrics = baseline
+            .and_then(|baseline_run| {
+                baseline_run
+                    .suites
+                    .iter()
+                    .find(|suite| suite.suite == suite_name)
+                    .and_then(|suite| {
+                        suite
+                            .workloads
+                            .iter()
+                            .find(|workload| workload.name == workload_name)
+                    })
+            })
+            .and_then(|workload| workload.metrics.as_ref());
+
+        for run in &results.runs {
+            let metrics = run
+                .suites
+                .iter()
+                .find(|suite| suite.suite == suite_name)
+                .and_then(|suite| suite.workloads.iter().find(|w| w.name == workload_name))
+                .and_then(|workload| workload.metrics.as_ref());
+
+            let Some(metrics) = metrics else {
+                continue;
+            };
+
+            absolute_throughput.push((run.name.clone(), metrics.throughput_per_sec));
+            if let Some(p50_ms) = metrics.p50_ms {
+                absolute_latency.push((run.name.clone(), p50_ms));
+            }
+            if let Some(baseline_metrics) = baseline_metrics {
+                if baseline_metrics.throughput_per_sec > 0.0 {
+                    throughput_pct.push((
+                        run.name.clone(),
+                        metrics.throughput_per_sec / baseline_metrics.throughput_per_sec * 100.0,
+                    ));
+                }
+                if let (Some(p50_ms), Some(baseline_p50_ms)) =
+                    (metrics.p50_ms, baseline_metrics.p50_ms)
+                {
+                    if baseline_p50_ms > 0.0 {
+                        latency_pct.push((run.name.clone(), p50_ms / baseline_p50_ms * 100.0));
+                    }
+                }
+            }
+        }
+
+        if absolute_throughput.is_empty() {
+            continue;
+        }
+
+        out.push_str(&format!("#### {}\n\n", workload_name));
+        out.push_str(&render_bar_chart(
+            &format!("{suite_name} / {workload_name} / throughput"),
+            "ops/sec",
+            &absolute_throughput,
+        ));
+        out.push_str(&render_bar_chart(
+            &format!("{suite_name} / {workload_name} / p50 latency"),
+            "ms",
+            &absolute_latency,
+        ));
+        out.push_str(&render_bar_chart(
+            &format!("{suite_name} / {workload_name} / throughput vs baseline"),
+            "% of baseline",
+            &throughput_pct,
+        ));
+        out.push_str(&render_bar_chart(
+            &format!("{suite_name} / {workload_name} / p50 latency vs baseline"),
+            "% of baseline",
+            &latency_pct,
+        ));
+    }
+
+    out
+}
+
+fn render_bar_chart(title: &str, y_axis_label: &str, series: &[(String, f64)]) -> String {
+    if series.is_empty() {
+        return String::new();
+    }
+
+    let labels = serde_json::to_string(
+        &series
+            .iter()
+            .map(|(label, _)| label.clone())
+            .collect::<Vec<_>>(),
+    )
+    .expect("chart labels should serialize");
+    let values = series
+        .iter()
+        .map(|(_, value)| format!("{value:.2}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let max_value = series
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(0.0_f64, f64::max);
+    let y_axis_max = if max_value <= 0.0 {
+        1.0
+    } else {
+        (max_value * 1.10).ceil()
+    };
+
+    format!(
+        "```mermaid\nxychart-beta\n    title \"{}\"\n    x-axis {}\n    y-axis \"{}\" 0 --> {}\n    bar [{}]\n```\n\n",
+        escape_mermaid_text(title),
+        labels,
+        escape_mermaid_text(y_axis_label),
+        y_axis_max,
+        values,
+    )
+}
+
+fn escape_mermaid_text(text: &str) -> String {
+    text.replace('"', "'")
 }
 
 fn render_workload_row(
@@ -244,5 +389,7 @@ mod tests {
         assert!(report.contains("runtime_worker_threads"));
         assert!(report.contains("+20.00"));
         assert!(report.contains("-1.00"));
+        assert!(report.contains("```mermaid"));
+        assert!(report.contains("throughput vs baseline"));
     }
 }

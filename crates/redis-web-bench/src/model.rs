@@ -118,7 +118,7 @@ impl SuiteRegistry {
 }
 
 /// Machine-readable benchmark artifact.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BenchmarkResults {
     pub generated_at: String,
     pub suite_version: String,
@@ -128,7 +128,7 @@ pub struct BenchmarkResults {
     pub runs: Vec<VariantBenchmarkResult>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct EnvironmentSummary {
     pub hostname: Option<String>,
     pub os: String,
@@ -136,7 +136,7 @@ pub struct EnvironmentSummary {
     pub cpu_parallelism: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct VariantBenchmarkResult {
     pub name: String,
     pub redis_endpoint: String,
@@ -145,35 +145,35 @@ pub struct VariantBenchmarkResult {
     pub suites: Vec<SuiteResult>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ConfigDiff {
     pub key: String,
     pub before: String,
     pub after: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SuiteResult {
     pub suite: String,
     pub status: SuiteStatus,
     pub workloads: Vec<WorkloadResult>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SuiteStatus {
     Completed,
     Skipped { reason: String },
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WorkloadResult {
     pub name: String,
     pub metrics: Option<MetricSummary>,
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MetricSummary {
     pub attempted_ops: u64,
     pub success_count: u64,

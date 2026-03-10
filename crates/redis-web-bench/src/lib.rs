@@ -108,6 +108,36 @@ pub async fn run_compare_with_registry(
     Ok(artifact_dir)
 }
 
+pub fn regenerate_report_from_results(results_path: &Path) -> Result<PathBuf> {
+    let contents = fs::read_to_string(results_path)
+        .with_context(|| format!("failed to read {}", results_path.display()))?;
+    let results: BenchmarkResults = serde_json::from_str(&contents)
+        .with_context(|| format!("failed to parse {}", results_path.display()))?;
+    let report_path = results_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("results path has no parent: {}", results_path.display()))?
+        .join("report.md");
+    fs::write(&report_path, render_markdown_report(&results))
+        .with_context(|| format!("failed to write {}", report_path.display()))?;
+    Ok(report_path)
+}
+
+pub fn regenerate_reports_under(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut report_paths = Vec::new();
+    for entry in fs::read_dir(root).with_context(|| format!("failed to read {}", root.display()))? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let results_path = entry.path().join("results.json");
+        if results_path.exists() {
+            report_paths.push(regenerate_report_from_results(&results_path)?);
+        }
+    }
+    report_paths.sort();
+    Ok(report_paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

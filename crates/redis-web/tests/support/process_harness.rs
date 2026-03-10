@@ -431,6 +431,9 @@ enum RedisUnixSocketServerKind {
 }
 
 #[cfg(unix)]
+const REDIS_TEST_SOCKET_PERMS: &str = "777";
+
+#[cfg(unix)]
 impl RedisUnixSocketServer {
     pub async fn start() -> Self {
         let tempdir = tempfile::tempdir().expect("failed to create temp dir for unix socket");
@@ -443,7 +446,7 @@ impl RedisUnixSocketServer {
                 .arg("--unixsocket")
                 .arg(&socket_path)
                 .arg("--unixsocketperm")
-                .arg("700")
+                .arg(REDIS_TEST_SOCKET_PERMS)
                 .arg("--save")
                 .arg("")
                 .arg("--appendonly")
@@ -476,7 +479,7 @@ impl RedisUnixSocketServer {
                 .arg("--unixsocket")
                 .arg("/data/redis.sock")
                 .arg("--unixsocketperm")
-                .arg("700")
+                .arg(REDIS_TEST_SOCKET_PERMS)
                 .arg("--save")
                 .arg("")
                 .arg("--appendonly")

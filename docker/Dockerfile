@@ -1,6 +1,6 @@
 # Base stage with cargo-chef installed
 FROM rust:alpine3.20 AS chef
-RUN apk add --no-cache musl-dev openssl-dev pkgconfig make gcc
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig make gcc
 RUN cargo install cargo-chef
 WORKDIR /app
 

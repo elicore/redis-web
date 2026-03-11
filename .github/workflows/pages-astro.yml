@@ -27,22 +27,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
 
+      - name: Cache docs dependencies
+        uses: actions/cache@v4
+        id: docs-cache
+        with:
+          path: |
+            ${{ env.BUILD_PATH }}/node_modules
+            ~/.bun/install/cache
+          key: pages-bun-${{ runner.os }}-${{ hashFiles('docs/bun.lock', 'docs/package.json') }}
+          restore-keys: |
+            pages-bun-${{ runner.os }}-
+
       - name: Install dependencies
-        run: npm install
+        if: steps.docs-cache.outputs.cache-hit != 'true'
         working-directory: ${{ env.BUILD_PATH }}
+        run: bun install --frozen-lockfile
 
       - name: Build with Astro
         run: |
-          npx --no-install astro build \
+          bun run build -- \
             --site "${{ steps.pages.outputs.origin }}" \
             --base "${{ steps.pages.outputs.base_path }}"
         working-directory: ${{ env.BUILD_PATH }}

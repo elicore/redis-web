@@ -329,26 +329,36 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Cache docs dependencies
+        uses: actions/cache@v4
+        id: docs-cache
         with:
-          node-version: '22'
+          path: |
+            docs/node_modules
+            ~/.bun/install/cache
+          key: docs-bun-${{ runner.os }}-${{ hashFiles('docs/bun.lock', 'docs/package.json') }}
+          restore-keys: |
+            docs-bun-${{ runner.os }}-
 
       - name: Install docs dependencies
+        if: steps.docs-cache.outputs.cache-hit != 'true'
         working-directory: docs
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Astro check
         working-directory: docs
-        run: npm run check
+        run: bun run check
 
-      - name: Build docs
+      - name: Build docs (Pages-equivalent)
         working-directory: docs
-        run: npm run build
+        run: bun run build
 
       - name: Validate local docs links
         working-directory: docs
-        run: npm run check-links
+        run: bun run check-links
 
   rename-guard:
     name: rename guard

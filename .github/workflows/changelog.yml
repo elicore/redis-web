@@ -1,10 +1,11 @@
 name: changelog
 
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
   push:
-    branches:
-      - main
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write

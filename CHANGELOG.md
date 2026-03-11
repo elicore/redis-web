@@ -84,6 +84,10 @@ All notable changes to this project will be documented in this file.
 
 - *(changelog)* Update CHANGELOG.md ([2725be6](https://github.com/elicore/redis-web/commit/2725be60cf25d5e6c21d40f3bc8bb6371b516269))
 
+- *(changelog)* Update CHANGELOG.md ([435d5e8](https://github.com/elicore/redis-web/commit/435d5e81830411f3861123a96a74447708dfbeea))
+
+- Enrich compatibility docs and harden compatibility checks ([71e6961](https://github.com/elicore/redis-web/commit/71e69617cd31a951b36aee85cbbddb8a04f46627))
+
 
 ### Features
 

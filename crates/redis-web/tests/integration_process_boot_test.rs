@@ -41,7 +41,6 @@ async fn test_env_var_expansion_end_to_end() {
         "http_port": 0,
         "database": 0,
         "websockets": false,
-        "daemonize": false,
         "verbosity": 4
     });
 
@@ -104,7 +103,6 @@ async fn test_invalid_unix_socket_path_fails_fast() {
         "http_port": 0,
         "database": 0,
         "websockets": false,
-        "daemonize": false,
         "verbosity": 4
     });
 
@@ -130,12 +128,12 @@ fn test_redis_web_uses_redis_web_json_by_default() {
     let tmp = TempDir::new().expect("temp dir should be created");
     fs::write(
         tmp.path().join("redis-web.json"),
-        r#"{"logfile":"$REDIS_WEB_SELECTED"}"#,
+        r#"{"redis_host":"$REDIS_WEB_SELECTED"}"#,
     )
     .expect("redis-web config should be written");
     fs::write(
         tmp.path().join("webdis.json"),
-        r#"{"logfile":"$WEBDIS_SELECTED"}"#,
+        r#"{"redis_host":"$WEBDIS_SELECTED"}"#,
     )
     .expect("webdis config should be written");
 
@@ -157,7 +155,7 @@ fn test_redis_web_falls_back_to_webdis_json() {
     let tmp = TempDir::new().expect("temp dir should be created");
     fs::write(
         tmp.path().join("webdis.json"),
-        r#"{"logfile":"$WEBDIS_FALLBACK"}"#,
+        r#"{"redis_host":"$WEBDIS_FALLBACK"}"#,
     )
     .expect("webdis config should be written");
 
@@ -174,12 +172,39 @@ fn test_redis_web_falls_back_to_webdis_json() {
 }
 
 #[test]
+fn test_redis_web_prefers_redis_web_min_json_when_present() {
+    ensure_redis_web_debug_binaries();
+    let tmp = TempDir::new().expect("temp dir should be created");
+    fs::write(
+        tmp.path().join("redis-web.min.json"),
+        r#"{"logfile":"$REDIS_WEB_MIN_SELECTED"}"#,
+    )
+    .expect("redis-web.min config should be written");
+    fs::write(
+        tmp.path().join("webdis.json"),
+        r#"{"logfile":"$WEBDIS_SELECTED"}"#,
+    )
+    .expect("webdis config should be written");
+
+    let output = std::process::Command::new(redis_web_binary_path())
+        .current_dir(tmp.path())
+        .output()
+        .expect("redis-web should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("REDIS_WEB_MIN_SELECTED"),
+        "expected minimal starter config selection, got stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_webdis_alias_prints_deprecation_notice() {
     ensure_redis_web_debug_binaries();
     let tmp = TempDir::new().expect("temp dir should be created");
     fs::write(
         tmp.path().join("webdis.json"),
-        r#"{"logfile":"$WEBDIS_ALIAS"}"#,
+        r#"{"redis_host":"$WEBDIS_ALIAS"}"#,
     )
     .expect("webdis config should be written");
 
@@ -228,5 +253,42 @@ fn test_write_default_config_uses_binary_specific_schema() {
         String::from_utf8_lossy(&webdis.stderr)
     );
     let legacy = fs::read_to_string(alias_path).expect("legacy default config should exist");
+    assert!(legacy.contains("\"$schema\": \"./webdis.schema.json\""));
+}
+
+#[test]
+fn test_write_minimal_config_uses_binary_specific_schema() {
+    ensure_redis_web_debug_binaries();
+    let tmp = TempDir::new().expect("temp dir should be created");
+
+    let redis_web = std::process::Command::new(redis_web_binary_path())
+        .current_dir(tmp.path())
+        .arg("--write-minimal-config")
+        .output()
+        .expect("redis-web should write minimal config");
+    assert!(
+        redis_web.status.success(),
+        "redis-web write failed: {}",
+        String::from_utf8_lossy(&redis_web.stderr)
+    );
+    let canonical = fs::read_to_string(tmp.path().join("redis-web.min.json"))
+        .expect("canonical minimal config should exist");
+    assert!(canonical.contains("\"$schema\": \"./redis-web.schema.json\""));
+    assert!(canonical.contains("\"http_host\": \"127.0.0.1\""));
+
+    let alias_path = tmp.path().join("webdis.min.generated.json");
+    let webdis = std::process::Command::new(webdis_binary_path())
+        .current_dir(tmp.path())
+        .arg("--write-minimal-config")
+        .arg("--config")
+        .arg(alias_path.as_os_str())
+        .output()
+        .expect("webdis alias should write minimal config");
+    assert!(
+        webdis.status.success(),
+        "webdis write failed: {}",
+        String::from_utf8_lossy(&webdis.stderr)
+    );
+    let legacy = fs::read_to_string(alias_path).expect("legacy minimal config should exist");
     assert!(legacy.contains("\"$schema\": \"./webdis.schema.json\""));
 }

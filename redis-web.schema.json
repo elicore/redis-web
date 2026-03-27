@@ -104,12 +104,14 @@
     },
     "daemonize": {
       "type": "boolean",
-      "description": "Whether to run redis-web in the background as a daemon.",
-      "default": false
+      "description": "Legacy compatibility option. The canonical binary runs in the foreground; use your service manager if you need daemonization.",
+      "default": false,
+      "deprecated": true
     },
     "pidfile": {
       "type": "string",
-      "description": "Override path to the PID file when running as a daemon. Defaults to redis-web.pid when omitted."
+      "description": "Legacy compatibility option. Process supervisors should manage PID files externally if they still need one.",
+      "deprecated": true
     },
     "websockets": {
       "type": "boolean",
@@ -134,11 +136,13 @@
     },
     "user": {
       "type": "string",
-      "description": "Drop privileges to this Unix user before serving requests."
+      "description": "Legacy compatibility option. Prefer your container or service manager for privilege separation.",
+      "deprecated": true
     },
     "group": {
       "type": "string",
-      "description": "Drop privileges to this Unix group before serving requests."
+      "description": "Legacy compatibility option. Prefer your container or service manager for privilege separation.",
+      "deprecated": true
     },
     "default_root": {
       "type": "string",
@@ -152,10 +156,12 @@
     },
     "logfile": {
       "type": "string",
-      "description": "Path to the log file. When omitted logs are sent to stdout."
+      "description": "Legacy compatibility option. The canonical binary logs to stderr; use shell redirection or your service manager if you need a file.",
+      "deprecated": true
     },
     "log_fsync": {
-      "$ref": "#/$defs/logFsync"
+      "$ref": "#/$defs/logFsync",
+      "deprecated": true
     },
     "hiredis": {
       "type": "object",
@@ -267,13 +273,13 @@
     },
     "compatHiredisConfig": {
       "type": "object",
-      "description": "Configuration for the hiredis-compatible session bridge endpoints.",
+      "description": "Configuration for the opt-in hiredis-compatible session bridge endpoints.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": true,
-          "description": "Enable or disable the /__compat session bridge."
+          "default": false,
+          "description": "Enable or disable the /__compat session bridge. Leave unset or false to keep the bridge inactive."
         },
         "path_prefix": {
           "type": "string",

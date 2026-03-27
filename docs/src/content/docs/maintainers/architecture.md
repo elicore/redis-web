@@ -11,10 +11,16 @@ Workspace crates:
 - `redis-web-runtime`: Redis connectivity, HTTP/WS handlers, router/server wiring
 - `redis-web-compat`: naming and migration helpers
 - `redis-web-hiredis-compat`: C ABI compatibility library scaffolding for hiredis drop-in usage
-- `redis-web`: CLI crate with canonical + alias binaries
+- `redis-web`: CLI crate with canonical HTTP + alias binaries, plus an explicit gRPC entrypoint
 
 This split isolates stable protocol/config logic from transport/runtime and
 migration concerns.
+
+The default build path targets the core server crates only. Optional surfaces
+like gRPC, hiredis ABI compatibility, and benchmark harnesses stay available as
+explicit opt-ins.
+Deprecated features and legacy compatibility knobs are tracked in
+[Deprecated Features](/maintainers/deprecations/).
 
 ## Testing and CI
 
@@ -27,11 +33,13 @@ Test tiers:
 Core commands:
 
 ```bash
-cargo test -p redis-web --tests --no-run
-make test
-make test_integration
-make bench_config_compare SPEC=docs/examples/config/redis-web.bench.yaml
-make bench_config_compare SPEC=docs/examples/config/redis-web.use-cases.bench.yaml
+cargo build                                                   # build the default server members
+make test                                                     # run fast unit + contract tests
+make test_integration                                         # run core HTTP/WS/socket integration tests
+make test_grpc                                                # run gRPC contract/integration tests
+make test_compat                                              # run hiredis compatibility integration tests
+make bench_config_compare SPEC=docs/examples/config/redis-web.bench.yaml         # compare benchmark variants
+make bench_config_compare SPEC=docs/examples/config/redis-web.use-cases.bench.yaml # compare use-case variants
 ```
 
 CI also runs docs build/link checks and rename guard checks.

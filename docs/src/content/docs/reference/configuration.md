@@ -6,6 +6,7 @@ description: Canonical config files, schema, compatibility keys, and examples.
 ## Canonical files
 
 - `redis-web.json`
+- `redis-web.min.json`
 - `redis-web.prod.json`
 - `redis-web.schema.json`
 
@@ -20,13 +21,42 @@ Compatibility keys still accepted:
 
 - `threads` alias for `http_threads`
 - `pool_size` alias for `pool_size_per_thread`
+- Legacy process-manager keys are still parsed for compatibility, but the
+  main `redis-web` binary ignores them:
+  - `daemonize`
+  - `pidfile`
+  - `user`
+  - `group`
+  - `logfile`
+  - `log_fsync`
 
 Environment variable expansion supports exact `$VARNAME` string values.
 
+## Minimal starter config
+
+For the first run, use `redis-web.min.json`:
+
+```json
+{
+  "$schema": "./redis-web.schema.json",
+  "redis_host": "127.0.0.1",
+  "redis_port": 6379,
+  "http_host": "127.0.0.1",
+  "http_port": 7379,
+  "database": 0
+}
+```
+
+This starter config keeps the server local-only and leaves the advanced knobs
+unset. Generate the same file with:
+
+```bash
+redis-web --write-minimal-config
+```
+
 ## Transport Selection
 
-Use `transport_mode` to select which public surface redis-web exposes at
-startup.
+Use `transport_mode` to match the binary you are starting.
 
 ```json
 {
@@ -36,8 +66,11 @@ startup.
 
 Supported values:
 
-- `rest`: enable the existing HTTP and optional WebSocket surface.
-- `grpc`: enable the gRPC surface instead of REST/WS.
+- `rest`: use `redis-web` for the HTTP, WebSocket, and compat surface.
+- `grpc`: use `redis-web-grpc` for the gRPC surface.
+
+The transport choice now lives in the binary name, and `transport_mode` keeps
+the config aligned with that choice.
 
 ## Worker and Pool Sizing
 
@@ -68,12 +101,23 @@ Attribute reference:
 
 When `transport_mode` is `grpc`, REST-only settings such as `websockets`,
 `default_root`, and `compat_hiredis` remain in the config for compatibility but
-are inactive.
+are inactive in `redis-web-grpc`.
+
+## Foreground-first Startup
+
+The main `redis-web` binary now runs in the foreground and logs to stderr by
+default. Use your service manager, container runtime, or shell redirection to
+daemonize or capture output if you need those behaviors.
+
+Legacy process-manager options remain in the config schema for transition
+compatibility, but they are omitted from generated defaults and ignored by the
+main `redis-web` binary. See [Deprecated Features](/maintainers/deprecations/)
+for the current list.
 
 ## gRPC Surface
 
 Use the `grpc` block to configure the gRPC listener and optional helper
-services.
+services for `redis-web-grpc`.
 
 ```json
 {
@@ -98,7 +142,7 @@ Attribute reference:
 - `port`
   Default: `7379`
   This is the listening port for the gRPC server when `transport_mode` is
-  `grpc`.
+  `grpc` and the `redis-web-grpc` binary is in use.
 - `enable_health_service`
   Default: `true`
   Exposes the standard `grpc.health.v1.Health` service. Leave this enabled if
@@ -131,8 +175,8 @@ Practical guidance:
 
 ## Hiredis Compat Bridge
 
-Use `compat_hiredis` to configure session endpoints used by hiredis-compatible
-clients.
+Use `compat_hiredis` to opt in to the session endpoints used by
+hiredis-compatible clients.
 
 ```json
 {
@@ -148,7 +192,7 @@ clients.
 
 Current behavior:
 
-- The bridge is enabled by default (`"enabled": true`) so existing deployments do not need extra config to expose `/__compat/*`.
+- The bridge is disabled unless you add an explicit `compat_hiredis` section and set `"enabled": true`.
 - `path_prefix` is normalized by the runtime to a leading slash and used for all compat routes.
 - `session_ttl_sec` controls idle cleanup and keeps stale sessions from leaking resources.
 - `max_sessions` limits concurrent active sessions.
@@ -223,6 +267,7 @@ If commands are unexpectedly failing with `-ERR forbidden`:
 Canonical files (repo root):
 
 - `redis-web.json`
+- `redis-web.min.json`
 - `redis-web.prod.json`
 
 gRPC example:
@@ -251,11 +296,9 @@ Developer workflow:
   "http_threads": 4,
   "pool_size_per_thread": 10,
   "database": 0,
-  "daemonize": false,
   "websockets": false,
   "http_max_request_size": 134217728,
   "verbosity": 4,
-  "logfile": "webdis.log",
   "acl": [
     {
       "disabled": [
@@ -284,7 +327,6 @@ Developer workflow:
   "http_port": 7379,
   "threads": 5,
   "pool_size": 20,
-  "daemonize": false,
   "websockets": false,
   "database": 0,
   "acl": [
@@ -303,8 +345,7 @@ Developer workflow:
   "hiredis": {
     "keep_alive_sec": 15
   },
-  "verbosity": 4,
-  "logfile": "webdis.log"
+  "verbosity": 4
 }
 ```
 
@@ -329,7 +370,6 @@ REDIS_WEB_COMPAT_MUTE_HTTP_PUBSUB_WARNING=1
   "http_host": "0.0.0.0",
   "http_port": 7379,
   "http_threads": 4,
-  "daemonize": true,
   "database": 0,
   "acl": [
     {
@@ -347,7 +387,6 @@ REDIS_WEB_COMPAT_MUTE_HTTP_PUBSUB_WARNING=1
   "hiredis": {
     "keep_alive_sec": 15
   },
-  "verbosity": 3,
-  "logfile": "/var/log/webdis.log"
+  "verbosity": 3
 }
 ```

@@ -25,8 +25,7 @@ The repository includes a sample config at
     "max_decoding_message_size": 16777216,
     "max_encoding_message_size": 16777216
   },
-  "verbosity": 4,
-  "logfile": "redis-web.log"
+  "verbosity": 4
 }
 ```
 
@@ -36,11 +35,11 @@ discover the service without a separate proto step.
 ## Start the server
 
 ```bash
-cargo run -p redis-web --bin redis-web -- docs/examples/config/redis-web.grpc.json
+cargo run -p redis-web --bin redis-web-grpc -- docs/examples/config/redis-web.grpc.json
 ```
 
-In this mode, redis-web serves only gRPC. The HTTP, WebSocket, and compat
-surfaces are not exposed.
+In this mode, `redis-web-grpc` serves only gRPC. The HTTP, WebSocket, and
+compat surfaces are not exposed.
 
 ## Inspect the service with grpcurl
 

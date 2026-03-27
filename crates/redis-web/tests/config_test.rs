@@ -68,8 +68,15 @@ fn test_config_loading() {
 
     // Verify optional fields are correctly parsed as Some(value)
     assert_eq!(config.http_max_request_size, Some(1024));
+    assert_eq!(config.pidfile.as_deref(), None);
     assert_eq!(config.user, Some("nobody".to_string()));
+    assert_eq!(config.group, Some("nogroup".to_string()));
     assert_eq!(config.verbosity, Some(5));
+    assert_eq!(config.logfile.as_deref(), Some("test.log"));
+    assert!(matches!(
+        config.log_fsync,
+        Some(LogFsync::Mode(LogFsyncMode::Auto))
+    ));
 }
 
 /// Tests that default values are applied for missing optional fields.
@@ -107,11 +114,12 @@ fn test_default_values() {
 
     // Verify optional fields are None when not specified
     assert_eq!(config.http_max_request_size, None);
+    assert_eq!(config.pidfile, None);
     assert_eq!(config.user, None);
-    assert!(config.compat_hiredis.is_some());
-    let compat = config.compat_hiredis.as_ref().unwrap();
-    assert!(compat.enabled);
-    assert_eq!(compat.path_prefix, "/__compat");
+    assert!(config.compat_hiredis.is_none());
+    assert_eq!(config.group, None);
+    assert_eq!(config.logfile, None);
+    assert!(config.log_fsync.is_none());
     assert_eq!(config.grpc.host, "0.0.0.0");
     assert_eq!(config.grpc.port, 7379);
     assert!(config.grpc.enable_health_service);
@@ -157,6 +165,12 @@ fn test_default_document_generation() {
         !obj.contains_key("runtime_worker_threads"),
         "runtime_worker_threads should be omitted when unset"
     );
+    assert!(!obj.contains_key("daemonize"));
+    assert!(!obj.contains_key("pidfile"));
+    assert!(!obj.contains_key("user"));
+    assert!(!obj.contains_key("group"));
+    assert!(!obj.contains_key("logfile"));
+    assert!(!obj.contains_key("log_fsync"));
     assert_eq!(
         obj.get("pool_size_per_thread").and_then(|v| v.as_u64()),
         Some(DEFAULT_POOL_SIZE_PER_THREAD as u64)
@@ -182,6 +196,43 @@ fn test_default_document_generation() {
     );
     assert!(!obj.contains_key("redis_auth"));
     assert!(!obj.contains_key("logfile"));
+    assert!(
+        !obj.contains_key("compat_hiredis"),
+        "compat_hiredis should be omitted from the default document"
+    );
+    assert!(!obj.contains_key("daemonize"));
+    assert!(!obj.contains_key("pidfile"));
+    assert!(!obj.contains_key("user"));
+    assert!(!obj.contains_key("group"));
+    assert!(!obj.contains_key("log_fsync"));
+}
+
+/// Ensures the generated starter configuration stays intentionally small.
+#[test]
+fn test_starter_document_generation() {
+    let value = Config::starter_document("./redis-web.schema.json");
+    let obj = value
+        .as_object()
+        .expect("starter document should be a JSON object");
+
+    assert_eq!(
+        obj.get("$schema").and_then(|v| v.as_str()),
+        Some("./redis-web.schema.json")
+    );
+    assert_eq!(
+        obj.get("redis_host").and_then(|v| v.as_str()),
+        Some("127.0.0.1")
+    );
+    assert_eq!(obj.get("redis_port").and_then(|v| v.as_u64()), Some(6379));
+    assert_eq!(
+        obj.get("http_host").and_then(|v| v.as_str()),
+        Some("127.0.0.1")
+    );
+    assert_eq!(obj.get("http_port").and_then(|v| v.as_u64()), Some(7379));
+    assert_eq!(obj.get("database").and_then(|v| v.as_u64()), Some(0));
+    assert!(!obj.contains_key("compat_hiredis"));
+    assert!(!obj.contains_key("logfile"));
+    assert!(!obj.contains_key("websockets"));
 }
 
 /// Ensures legacy aliases (`threads`, `pool_size`) are mapped when canonical

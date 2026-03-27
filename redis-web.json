@@ -6,7 +6,6 @@
   "http_port": 7379,
   "http_threads": 4,
   "pool_size_per_thread": 10,
-  "daemonize": false,
   "websockets": true,
   "http_max_request_size": 134217728,
   "verbosity": 4,

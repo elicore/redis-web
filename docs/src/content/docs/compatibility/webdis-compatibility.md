@@ -28,6 +28,9 @@ Intentionally shifted:
 - Documentation is rewritten for the current implementation instead of forked
   historical docs
 
+The current list of deprecated knobs and compatibility-only features is tracked
+in [Deprecated Features](/maintainers/deprecations/).
+
 Legacy forked docs were replaced by compatibility-focused pages and tests in this
 section.
 
@@ -45,7 +48,7 @@ webdis --write-default-config --config ./webdis.generated.json
 #### After
 
 ```bash
-redis-web redis-web.json
+redis-web redis-web.min.json
 redis-web --write-default-config --config ./redis-web.generated.json
 ```
 
@@ -54,13 +57,17 @@ Compatibility behavior is implemented in `redis-web/src/lib.rs` and
 
 - `redis-web` resolves default config in this order:
   - prefer `redis-web.json`
+  - then `redis-web.min.json`
   - fallback to `webdis.json`
   - default to `redis-web.json` if neither exists
 - `redis-web` prints a fallback notice only when it resolves to legacy `webdis.json`.
 - `webdis` prints the deprecation notice before startup.
 - `--write-default-config` writes schema paths tied to the invoked binary name:
-  - `./redis-web.schema.json` for canonical binary
+  - `./redis-web.schema.json` for the main `redis-web` binary
   - `./webdis.schema.json` for legacy binary name
+- `--write-minimal-config` writes a compact starter file:
+  - `./redis-web.min.json` for canonical binary
+  - `./webdis.min.json` for legacy binary name
 
 ### Config and schema migration
 
@@ -107,15 +114,16 @@ cargo test -p redis-web --test integration_process_boot_test
 
 ## Track 2: compat endpoint compatibility
 
-The `compat_hiredis` bridge mounts REST endpoints by default in REST mode and is
-not mounted for gRPC mode.
+The `compat_hiredis` bridge is opt-in in REST mode and is not mounted for gRPC
+mode.
 
 - Runtime source: `crates/redis-web-runtime/src/server.rs`
 - Endpoint behavior source: `crates/redis-web-runtime/src/compat.rs`
 
 Key runtime behavior:
 
-- `compat_hiredis.path_prefix` changes all mounted endpoints.
+- `compat_hiredis.path_prefix` changes all mounted endpoints when the bridge is
+  enabled.
 - `/session` creates a new session and returns session metadata.
 - `/cmd/{session_id}.raw` executes one or more RESP command frames in order.
 - `/stream/{session_id}.raw` keeps a pub/sub stream open and sends RESP messages.

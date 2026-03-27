@@ -5,10 +5,10 @@ description: Command encoding, response formats, and WebSocket endpoints.
 
 ## Surface selection
 
-`redis-web` exposes one public surface at a time:
+Choose the binary first, then the surface:
 
-- `transport_mode = "rest"`: HTTP, WebSocket, and optional compat routes
-- `transport_mode = "grpc"`: gRPC only
+- `redis-web` with `transport_mode = "rest"`: HTTP, WebSocket, and optional compat routes
+- `redis-web-grpc` with `transport_mode = "grpc"`: gRPC only
 
 The sections below describe both transport families.
 
@@ -37,14 +37,12 @@ happy.
 Format selection via extension suffix:
 
 - `.json` (default)
-- `.msg` / `.msgpack`
 - `.raw`
+- common text/image suffixes like `.txt`, `.html`, `.xml`, `.png`, `.jpg`
 
-JSON is the most interoperable choice, while MessagePack offers smaller
-payloads and faster decoding for high-throughput clients. Use `.raw` when you
-want unmodified RESP replies.
-
-Passthrough MIME mappings include `.txt`, `.html`, `.xml`, `.png`, `.jpg`.
+JSON is the most interoperable choice. Use `.raw` when you want unmodified
+RESP replies, and the text/image suffixes when you want the payload as a raw
+string or binary body with an appropriate `Content-Type`.
 
 Header override without body format change:
 
@@ -65,8 +63,8 @@ change the response body format.
 
 ## gRPC API
 
-When `transport_mode` is `grpc`, redis-web exposes the `redis_web.v1.RedisGateway`
-service with three RPCs:
+When `transport_mode` is `grpc`, `redis-web-grpc` exposes the
+`redis_web.v1.RedisGateway` service with three RPCs:
 
 - `Execute(CommandRequest) returns (CommandReply)`
 - `ExecuteStream(stream StreamCommandRequest) returns (stream StreamCommandReply)`

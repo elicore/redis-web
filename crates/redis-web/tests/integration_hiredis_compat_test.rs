@@ -1,9 +1,9 @@
 mod support;
 
 use reqwest::Client;
+use serde_json::json;
 use std::time::Duration;
 use support::process_harness::{redis_publish, TestServer};
-use serde_json::json;
 use tokio::time::sleep;
 
 fn resp_command(parts: &[&str]) -> Vec<u8> {
@@ -103,9 +103,45 @@ async fn spawn_server_with_compat_config(config: serde_json::Value) -> TestServe
     TestServer::spawn_with_config_and_env(config_file, config, &[]).await
 }
 
+fn compat_enabled_config() -> serde_json::Value {
+    json!({
+        "redis_host": "127.0.0.1",
+        "redis_port": 6379,
+        "http_host": "127.0.0.1",
+        "http_port": 0,
+        "database": 0,
+        "compat_hiredis": {
+            "enabled": true,
+            "path_prefix": "/__compat",
+            "session_ttl_sec": 300,
+            "max_sessions": 1024,
+            "max_pipeline_commands": 256
+        }
+    })
+}
+
+#[tokio::test]
+async fn test_compat_bridge_is_not_mounted_by_default() {
+    let server = TestServer::new().await;
+    let client = Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/__compat/session", server.port))
+        .send()
+        .await
+        .expect("compat probe request failed");
+
+    assert_eq!(resp.status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    let body = resp.text().await.expect("compat probe body failed");
+    assert!(
+        body.contains("unknown command '__compat'"),
+        "expected fallback to the command route, got: {body}"
+    );
+}
+
 #[tokio::test]
 async fn test_compat_session_command_roundtrip() {
-    let server = TestServer::new().await;
+    let server = spawn_server_with_compat_config(compat_enabled_config()).await;
     let client = Client::new();
 
     let body = create_compat_session(&client, server.port).await;
@@ -271,23 +307,19 @@ async fn test_compat_session_limit_and_ttl_cleanup() {
         .await
         .expect("command after TTL failed");
     assert_eq!(after_ttl.status(), reqwest::StatusCode::NOT_FOUND);
-
 }
 
 #[tokio::test]
 async fn test_compat_forbidden_command_and_auth() {
-    let server = spawn_server_with_compat_config(json!({
-        "redis_host": "127.0.0.1",
-        "redis_port": 6379,
-        "http_host": "127.0.0.1",
-        "http_port": 0,
-        "database": 0,
-        "acl": [
+    let mut config = compat_enabled_config();
+    config.as_object_mut().unwrap().insert(
+        "acl".to_string(),
+        json!([
             {"disabled": ["*"]},
             {"http_basic_auth": "user:password", "enabled": ["*"]}
-        ],
-    }))
-    .await;
+        ]),
+    );
+    let server = spawn_server_with_compat_config(config).await;
     let client = Client::new();
 
     let body = create_compat_session(&client, server.port).await;
@@ -323,7 +355,7 @@ async fn test_compat_forbidden_command_and_auth() {
 
 #[tokio::test]
 async fn test_compat_stream_pubsub_message() {
-    let server = TestServer::new().await;
+    let server = spawn_server_with_compat_config(compat_enabled_config()).await;
     let client = Client::new();
 
     let body = create_compat_session(&client, server.port).await;

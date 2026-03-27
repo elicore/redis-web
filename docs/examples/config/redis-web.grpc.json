@@ -11,6 +11,5 @@
     "max_decoding_message_size": 16777216,
     "max_encoding_message_size": 16777216
   },
-  "verbosity": 4,
-  "logfile": "redis-web.log"
+  "verbosity": 4
 }

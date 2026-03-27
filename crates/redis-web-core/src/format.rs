@@ -4,7 +4,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
-use rmp_serde;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -69,8 +68,6 @@ pub fn content_type_for_extension(ext: &str) -> Option<&'static str> {
         "xml" => Some("text/xml"),
         "png" => Some("image/png"),
         "jpg" | "jpeg" => Some("image/jpeg"),
-        // Format extensions also imply a sensible default content type.
-        "msg" | "msgpack" => Some("application/x-msgpack"),
         "raw" => Some("text/plain"),
         _ => None,
     }
@@ -89,7 +86,6 @@ pub enum OutputFormat {
     ///
     /// This is selected by the `.raw` suffix.
     Raw,
-    MessagePack,
     /// Return only string/binary Redis replies as the HTTP body, without wrapping.
     ///
     /// This is selected by suffixes like `.txt`, `.html`, `.xml`, `.png`, `.jpg`, `.jpeg`.
@@ -103,7 +99,6 @@ impl OutputFormat {
         match ext {
             "json" => Some(OutputFormat::Json),
             "raw" => Some(OutputFormat::Raw),
-            "msg" | "msgpack" => Some(OutputFormat::MessagePack),
             "txt" | "html" | "xhtml" | "xml" | "png" | "jpg" | "jpeg" => Some(OutputFormat::Text),
             _ => None,
         }
@@ -156,16 +151,6 @@ impl OutputFormat {
                     .body(Body::from(body))
                     .unwrap()
             }
-            OutputFormat::MessagePack => {
-                let response = json!({
-                    command: value
-                });
-                let body = rmp_serde::to_vec(&response).unwrap();
-                Response::builder()
-                    .header(header::CONTENT_TYPE, "application/x-msgpack")
-                    .body(Body::from(body))
-                    .unwrap()
-            }
             // `Text` responses are built from the raw Redis reply bytes in the handler.
             OutputFormat::Text => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -198,15 +183,12 @@ mod tests {
 
     #[test]
     fn extension_maps_to_expected_format_and_content_type() {
-        assert_eq!(
-            OutputFormat::from_extension("msgpack"),
-            Some(OutputFormat::MessagePack)
-        );
         assert_eq!(OutputFormat::from_extension("raw"), Some(OutputFormat::Raw));
         assert_eq!(
             OutputFormat::from_extension("txt"),
             Some(OutputFormat::Text)
         );
+        assert_eq!(OutputFormat::from_extension("msgpack"), None);
         assert_eq!(content_type_for_extension("png"), Some("image/png"));
     }
 }

@@ -35,8 +35,12 @@ pub struct Config {
     pub pool_size_per_thread: Option<usize>,
     #[serde(default, rename = "pool_size", skip_serializing, alias = "pool_size")]
     legacy_pool_size_per_thread: Option<usize>,
+    /// Legacy compatibility knob. The main binary runs in the foreground
+    /// and ignores daemonization requests.
     #[serde(default)]
     pub daemonize: bool,
+    /// Legacy compatibility knob. Process supervisors should manage PID files
+    /// externally if they still need one.
     pub pidfile: Option<String>,
     #[serde(default)]
     pub websockets: bool,
@@ -49,17 +53,24 @@ pub struct Config {
     /// **TCP/TLS** connections it opens. This does not apply to UNIX-domain socket
     /// connections (`redis_socket`).
     pub hiredis: Option<HiRedisConfig>,
-    /// Optional hiredis-compat runtime settings used by the `/__compat/*` bridge.
-    #[serde(default = "default_compat_hiredis")]
+    /// Optional hiredis-compat runtime settings used by the `/__compat/*` bridge when
+    /// explicitly enabled.
+    #[serde(default)]
     pub compat_hiredis: Option<CompatHiRedisConfig>,
     #[serde(default = "default_grpc")]
     pub grpc: GrpcConfig,
     pub http_max_request_size: Option<usize>,
+    /// Legacy compatibility knob. Prefer `sudo`, containers, or service
+    /// managers if you need privilege separation.
     pub user: Option<String>,
+    /// Legacy compatibility knob. Prefer `sudo`, containers, or service
+    /// managers if you need privilege separation.
     pub group: Option<String>,
     pub default_root: Option<String>,
     pub verbosity: Option<usize>,
+    /// Legacy compatibility knob. The main binary logs to stderr.
     pub logfile: Option<String>,
+    /// Legacy compatibility knob. Prefer external log rotation/supervision.
     pub log_fsync: Option<LogFsync>,
 }
 
@@ -167,7 +178,7 @@ pub struct CompatHiRedisConfig {
 impl Default for CompatHiRedisConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             path_prefix: "/__compat".to_string(),
             session_ttl_sec: 300,
             max_sessions: 1024,
@@ -249,9 +260,34 @@ impl Config {
     pub fn default_document(schema_ref: &str) -> Value {
         let value = serde_json::to_value(Self::default()).expect("default config is serializable");
         match value {
-            Value::Object(map) => Value::Object(decorate_default_map(map, schema_ref)),
+            Value::Object(map) => Value::Object(decorate_config_map(
+                map,
+                schema_ref,
+                DEFAULT_CONFIG_KEY_ORDER,
+            )),
             other => other,
         }
+    }
+
+    pub fn starter_document(schema_ref: &str) -> Value {
+        let mut map = Map::new();
+        map.insert(
+            "redis_host".to_string(),
+            Value::String(default_redis_host()),
+        );
+        map.insert("redis_port".to_string(), Value::from(default_redis_port()));
+        map.insert(
+            "http_host".to_string(),
+            Value::String(default_http_host_starter()),
+        );
+        map.insert("http_port".to_string(), Value::from(default_http_port()));
+        map.insert("database".to_string(), Value::from(DEFAULT_DATABASE));
+
+        Value::Object(decorate_config_map(
+            map,
+            schema_ref,
+            DEFAULT_CONFIG_KEY_ORDER,
+        ))
     }
     fn apply_legacy_aliases(&mut self) {
         if self.http_threads.is_none() && self.legacy_http_threads.is_some() {
@@ -290,7 +326,7 @@ impl Default for Config {
             acl: None,
             redis_auth: None,
             hiredis: None,
-            compat_hiredis: default_compat_hiredis(),
+            compat_hiredis: None,
             grpc: default_grpc(),
             http_max_request_size: Some(DEFAULT_HTTP_MAX_REQUEST_SIZE),
             user: None,
@@ -319,6 +355,10 @@ fn default_http_port() -> u16 {
     7379
 }
 
+fn default_http_host_starter() -> String {
+    "127.0.0.1".to_string()
+}
+
 fn default_grpc_host() -> String {
     "0.0.0.0".to_string()
 }
@@ -331,6 +371,8 @@ fn default_grpc_health() -> bool {
     true
 }
 
+// Generated defaults intentionally omit legacy process-manager keys so the
+// canonical config stays small and foreground-oriented.
 const DEFAULT_CONFIG_KEY_ORDER: &[&str] = &[
     "$schema",
     "redis_host",
@@ -347,36 +389,31 @@ const DEFAULT_CONFIG_KEY_ORDER: &[&str] = &[
     "runtime_worker_threads",
     "pool_size_per_thread",
     "database",
-    "daemonize",
-    "pidfile",
-    "user",
-    "group",
     "websockets",
     "default_root",
     "http_max_request_size",
     "verbosity",
-    "logfile",
-    "log_fsync",
     "ssl",
     "acl",
 ];
-
-fn default_compat_hiredis() -> Option<CompatHiRedisConfig> {
-    Some(CompatHiRedisConfig::default())
-}
 
 fn default_grpc() -> GrpcConfig {
     GrpcConfig::default()
 }
 
-fn decorate_default_map(mut map: Map<String, Value>, schema_ref: &str) -> Map<String, Value> {
+fn decorate_config_map(
+    mut map: Map<String, Value>,
+    schema_ref: &str,
+    key_order: &[&str],
+) -> Map<String, Value> {
     map.insert("$schema".to_string(), Value::String(schema_ref.to_string()));
     map.retain(|_, v| !v.is_null());
+    prune_legacy_process_manager_keys(&mut map);
 
     let mut ordered = Map::new();
     let mut remaining: BTreeMap<String, Value> = map.into_iter().collect();
 
-    for &key in DEFAULT_CONFIG_KEY_ORDER {
+    for &key in key_order {
         if let Some(value) = remaining.remove(key) {
             ordered.insert(key.to_string(), value);
         }
@@ -387,6 +424,19 @@ fn decorate_default_map(mut map: Map<String, Value>, schema_ref: &str) -> Map<St
     }
 
     ordered
+}
+
+fn prune_legacy_process_manager_keys(map: &mut Map<String, Value>) {
+    for key in [
+        "daemonize",
+        "pidfile",
+        "user",
+        "group",
+        "logfile",
+        "log_fsync",
+    ] {
+        map.remove(key);
+    }
 }
 
 /// A JSON path used for error reporting when expanding `$VARNAME` placeholders.

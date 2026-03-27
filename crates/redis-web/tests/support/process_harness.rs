@@ -116,6 +116,10 @@ pub fn webdis_binary_path() -> PathBuf {
     resolve_binary_path("webdis")
 }
 
+pub fn redis_web_grpc_binary_path() -> PathBuf {
+    resolve_binary_path("redis-web-grpc")
+}
+
 pub async fn redis_connect_local() -> MultiplexedConnection {
     let client =
         redis::Client::open("redis://127.0.0.1:6379/").expect("failed to create Redis client");
@@ -228,9 +232,7 @@ impl TestServer {
             "http_port": 0,
             "database": 0,
             "websockets": true,
-            "daemonize": false,
             "verbosity": 5,
-            "logfile": "redis-web.log",
             "http_max_request_size": limit,
             "acl": [
                 {
@@ -334,9 +336,7 @@ impl GrpcTestServer {
                 "enable_reflection": false
             },
             "database": 0,
-            "daemonize": false,
-            "verbosity": 5,
-            "logfile": "redis-web.log"
+            "verbosity": 5
         });
 
         Self::spawn_with_config_and_env(config_file, config_content, &[]).await
@@ -368,12 +368,12 @@ impl GrpcTestServer {
                 .expect("Failed to seek config file");
             write!(config_file, "{}", config_content).expect("Failed to write config");
 
-            let mut cmd = Command::new(redis_web_binary_path());
+            let mut cmd = Command::new(redis_web_grpc_binary_path());
             cmd.arg(&config_path);
             for (k, v) in env {
                 cmd.env(k, v);
             }
-            let mut process = cmd.spawn().expect("Failed to start redis-web");
+            let mut process = cmd.spawn().expect("Failed to start redis-web-grpc");
 
             let mut ready = false;
             for _ in 0..40 {
@@ -403,7 +403,7 @@ impl GrpcTestServer {
 
             let _ = process.kill();
             if attempt == 19 {
-                panic!("failed to start redis-web gRPC server after retries");
+                panic!("failed to start redis-web-grpc server after retries");
             }
         }
 

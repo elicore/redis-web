@@ -47,6 +47,7 @@ Current implementation notes:
 ## `compat_hiredis` configuration
 
 The bridge is controlled by the root `compat_hiredis` section in `redis-web.json`.
+Omit the section entirely to keep the default HTTP surface lean.
 
 ```json
 {

@@ -7,11 +7,9 @@
   "http_threads": 4,
   "pool_size_per_thread": 10,
   "database": 0,
-  "daemonize": false,
   "websockets": false,
   "http_max_request_size": 134217728,
   "verbosity": 4,
-  "logfile": "webdis.log",
   "acl": [
     {
       "disabled": [

@@ -4,10 +4,22 @@
 
 ## Quick start
 
-Run the canonical binary against a JSON config:
+Run the main `redis-web` binary against the minimal starter config:
 
 ```bash
-cargo run -p redis-web --bin redis-web -- redis-web.json
+cargo run -p redis-web --bin redis-web -- redis-web.min.json
+```
+
+If you want to generate that starter file yourself, use:
+
+```bash
+cargo run -p redis-web --bin redis-web -- --write-minimal-config
+```
+
+Run the explicit gRPC binary against a gRPC config:
+
+```bash
+cargo run -p redis-web --bin redis-web-grpc -- docs/examples/config/redis-web.grpc.json
 ```
 
 `webdis` compatibility is still available as a temporary alias:
@@ -29,12 +41,23 @@ curl http://127.0.0.1:7379/SET/hello/world
 curl http://127.0.0.1:7379/GET/hello
 ```
 
+The main `redis-web` binary runs in the foreground and logs to stderr. Use your
+service manager, container runtime, or shell redirection if you want daemon
+behavior or log files.
+
+For the core server path, the simplest build and test loop is:
+
+```bash
+cargo build
+make test
+make test_integration
+```
+
 ## What you get from redis-web
 
 `redis-web` exposes Redis command execution as URL-driven HTTP endpoints and WebSocket streams, while keeping format selection explicit:
 
 - JSON (`.json`) for general clients and structured tool consumption.
-- MessagePack (`.msg`) for compact binary responses.
 - Raw RESP (`.raw`) for lower-level integrations.
 - Optional JSONP support and MIME passthrough behavior for compatibility flows.
 
@@ -44,34 +67,33 @@ It also supports:
 - Command-level ACL enforcement and optional HTTP basic auth.
 - TLS connection options for Redis backends and configurable timeouts/pooling settings.
 - Config-comparison performance benchmarking through `redis-web-bench`.
-- Process controls you usually need in service environments: daemonization, privilege dropping, and structured tracing.
+- Foreground-first process behavior with structured stderr logging.
 
 Compatibility is a first-class design goal:
 - Legacy `webdis` naming, aliases, and config keys are supported.
 - `hiredis` clients (including `redis-py` flows that use `hiredis-py`) can be supported through a staged C ABI compatibility layer (`libhiredis`-style symbols and headers).
+- gRPC runs through the separate `redis-web-grpc` binary so the default HTTP path stays small.
+- Legacy process-manager config knobs are not supported anymore. Configs that still use `daemonize`, `pidfile`, `user`, `group`, `logfile`, or `log_fsync` must be updated to use a foreground `redis-web` process plus your shell, supervisor, container runtime, or service manager for backgrounding, privilege separation, and log handling.
 
 ## Workspace layout and crate responsibilities
 
-This is a Rust workspace with five crates:
+This is a Rust workspace with four default build members and two opt-in members.
+
+Default build members:
 
 - `redis-web-core`: shared types and behavior that all other crates depend on.
-  - Configuration loading and validation (`config` + schema compatibility helpers).
-  - Request parsing, output format negotiation, ACL primitives, and response rendering.
 - `redis-web-runtime`: the actual server runtime layer.
-  - Axum routes, HTTP handlers, command execution bridge, WebSocket handlers, and Redis pool management.
-  - Re-exported router/server functions let you embed the same runtime behavior into other Axum apps.
 - `redis-web-compat`: compatibility helpers for migration.
-  - Canonical vs legacy invocation/config naming.
-  - Friendly deprecation behavior and alias handling during transition.
-- `redis-web-hiredis-compat`: C ABI compatibility crate (cdylib/staticlib).
-  - Builds `libhiredis`-compatible symbols and headers for relinking C clients.
-  - Used when you need drop-in behavior for existing `hiredis` integration paths.
 - `redis-web`: application entrypoint crate.
-  - CLI parsing (`--write-default-config`, legacy/canonical entrypoint behavior).
-  - Logging setup, daemonization, privilege dropping, and startup orchestration.
+
+Opt-in members:
+
+- `redis-web-hiredis-compat`: C ABI compatibility crate (cdylib/staticlib).
 - `redis-web-bench`: informational benchmark runner for comparing config variants.
-  - Loads a base config plus named override variants from YAML/JSON.
-  - Boots isolated `redis-web` processes, runs benchmark suites, and writes JSON/Markdown artifacts.
+
+The default members cover the core server path: config loading, request parsing,
+HTTP/WebSocket serving, and the CLI entrypoint. The opt-in members add the
+heavier compatibility and benchmarking surfaces.
 
 ## Subprojects
 
@@ -86,5 +108,5 @@ This is a Rust workspace with five crates:
 - Compatibility references: [`docs/src/content/docs/compatibility/webdis-compatibility.md`](docs/src/content/docs/compatibility/webdis-compatibility.md), [`docs/src/content/docs/compatibility/hiredis-dropin.md`](docs/src/content/docs/compatibility/hiredis-dropin.md), [`docs/src/content/docs/compatibility/hiredis-client-integration.md`](docs/src/content/docs/compatibility/hiredis-client-integration.md), [`subprojects/redispy-hiredis-compat/USAGE.md`](subprojects/redispy-hiredis-compat/USAGE.md)
 - Embedding and deploy docs: [`docs/src/content/docs/guides/embedding.md`](docs/src/content/docs/guides/embedding.md), [`docs/src/content/docs/guides/deployment.md`](docs/src/content/docs/guides/deployment.md)
 - Maintainer architecture: [`docs/src/content/docs/maintainers/architecture.md`](docs/src/content/docs/maintainers/architecture.md), `redis-web.schema.json`
-- Useful build/test entrypoints from repo conventions: `make test`, `make test_all`, `make clean`, `scripts/compose-smoke.sh`
-- Config benchmark comparison entrypoint: `make bench_config_compare SPEC=docs/examples/config/redis-web.bench.yaml`
+- Core build/test entrypoints from repo conventions: `cargo build`, `make test`, `make test_integration`, `make clean`, `scripts/compose-smoke.sh`
+- Heavier opt-in entrypoints: `make test_grpc`, `make test_compat`, `make test_all`, `make perftest`, `make bench_config_compare SPEC=docs/examples/config/redis-web.bench.yaml`

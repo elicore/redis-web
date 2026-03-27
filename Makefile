@@ -13,7 +13,7 @@ endif
 all: build
 
 build:
-	cargo build --workspace $(CARGO_FLAGS)
+	cargo build $(CARGO_FLAGS)
 
 build_hiredis_compat:
 	./scripts/build-hiredis-compat.sh
@@ -21,6 +21,7 @@ build_hiredis_compat:
 test_hiredis_compat_fixture:
 	./crates/redis-web-hiredis-compat/tests/compile-fixture.sh
 
+# Optional compat / perf / benchmark surfaces stay explicit.
 bench_hiredis_compat:
 	./crates/redis-web/tests/bench-hiredis-compat.sh
 
@@ -60,23 +61,34 @@ compat_ssl_audit:
 clean:
 	cargo clean
 
+# Core server path: fast unit + contract checks that do not require the heavier
+# compat, gRPC, or performance harnesses.
 test:
 	cargo test -p redis-web --lib
-	cargo test -p redis-web --test config_test --test handler_test --test logging_fsync_test --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
+	cargo test -p redis-web --test config_test --test handler_test --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
 
 test_unit:
 	cargo test --workspace --lib
 
 test_functional:
-	cargo test -p redis-web --test config_test --test handler_test --test logging_fsync_test --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
+	cargo test -p redis-web --test config_test --test handler_test --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
 
 test_integration:
-	cargo test -p redis-web --test integration_process_boot_test --test integration_redis_http_test --test integration_redis_pubsub_test --test integration_redis_socket_test --test websocket_raw_test --test integration_hiredis_compat_test
+	$(MAKE) test_integration_core
+
+test_integration_core:
+	cargo test -p redis-web --test integration_process_boot_test --test integration_redis_http_test --test integration_redis_pubsub_test --test integration_redis_socket_test --test websocket_raw_test
+
+test_grpc:
+	cargo test -p redis-web --test functional_grpc_contract_test --test integration_redis_grpc_test
+
+test_compat:
+	cargo test -p redis-web --test integration_hiredis_compat_test
 
 perftest:
 	./crates/redis-web/tests/bench.sh
 
-test_all: test perftest
+test_all: test test_integration_core test_grpc test_compat perftest
 
 ci_local_linux:
 	$(ACT) pull_request -W .github/workflows/build.yml -j ci-linux \
@@ -96,4 +108,4 @@ ci_local_linux_arm:
 
 ci_local: ci_local_linux ci_local_linux_arm
 
-.PHONY: all build build_hiredis_compat test_hiredis_compat_fixture bench_hiredis_compat bench_config_compare compat_redispy_bootstrap compat_redispy_build_hiredis compat_redispy_test compat_redispy_audit compat_redispy_regression compat_runtime_matrix compat_async_matrix compat_no_unsupported_sync_audit compat_ssl_audit clean install test perftest test_all ci_local ci_local_linux ci_local_linux_arm
+.PHONY: all build build_hiredis_compat test_hiredis_compat_fixture bench_hiredis_compat bench_config_compare compat_redispy_bootstrap compat_redispy_build_hiredis compat_redispy_test compat_redispy_audit compat_redispy_regression compat_runtime_matrix compat_async_matrix compat_no_unsupported_sync_audit compat_ssl_audit clean install test test_integration test_integration_core test_grpc test_compat perftest test_all ci_local ci_local_linux ci_local_linux_arm

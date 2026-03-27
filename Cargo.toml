@@ -1,4 +1,10 @@
 [workspace]
+default-members = [
+    "crates/redis-web-core",
+    "crates/redis-web-runtime",
+    "crates/redis-web-compat",
+    "crates/redis-web",
+]
 members = [
     "crates/redis-web-core",
     "crates/redis-web-runtime",

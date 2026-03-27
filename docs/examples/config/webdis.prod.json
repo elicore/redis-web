@@ -9,8 +9,6 @@
 
   "http_threads": 4,
 
-  "daemonize": true,
-
   "database": 0,
 
   "acl": [
@@ -27,6 +25,5 @@
     "keep_alive_sec": 15
   },
 
-  "verbosity": 3,
-  "logfile": "/var/log/webdis.log"
+  "verbosity": 3
 }

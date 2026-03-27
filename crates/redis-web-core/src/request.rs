@@ -224,6 +224,23 @@ mod tests {
     }
 
     #[test]
+    fn parser_treats_msgpack_suffix_as_plain_path_text() {
+        let params = HashMap::new();
+        let parsed = parse_http_request(ParseRequestInput {
+            command_path: "GET/key.msgpack",
+            params: &params,
+            default_database: 0,
+            body: None,
+            etag_enabled: true,
+        })
+        .expect("msgpack suffix should not change parsing");
+
+        assert_eq!(parsed.command.command_name, "GET");
+        assert_eq!(parsed.command.args, vec![b"key.msgpack".to_vec()]);
+        assert_eq!(parsed.output_format, OutputFormat::Json);
+    }
+
+    #[test]
     fn parser_disables_jsonp_for_raw_output() {
         let mut params = HashMap::new();
         params.insert("jsonp".to_string(), "cb".to_string());

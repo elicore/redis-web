@@ -6,19 +6,21 @@ description: Start redis-web locally and send your first HTTP or WebSocket comma
 ## Run locally
 
 ```bash
-cargo run -p redis-web --bin redis-web -- redis-web.json
+cargo run -p redis-web --bin redis-web -- redis-web.min.json
 ```
 
 If no config path is passed, `redis-web` loads `redis-web.json` by default, then
-falls back to `webdis.json` for compatibility.
+`redis-web.min.json`, then `webdis.json` for compatibility.
 
-## Write a default config
+## Write a starter config
 
 ```bash
-redis-web --write-default-config
+redis-web --write-minimal-config
 ```
 
-This writes `redis-web.json` with `$schema` set to `./redis-web.schema.json`.
+This writes `redis-web.min.json` with only the fields needed for a first run.
+Use `redis-web --write-default-config` when you want the full documented config
+surface.
 
 ## First HTTP requests
 

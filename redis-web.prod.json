@@ -8,7 +8,6 @@
   "http_port": 7379,
 
   "http_threads": 4,
-  "daemonize": true,
 
   "acl": [
     {
@@ -24,6 +23,5 @@
     "keep_alive_sec": 15
   },
 
-  "verbosity": 3,
-  "logfile": "/var/log/redis-web.log"
+  "verbosity": 3
 }

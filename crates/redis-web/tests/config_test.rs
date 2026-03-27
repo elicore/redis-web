@@ -12,8 +12,8 @@ use std::io::Write;
 use std::sync::Mutex;
 
 use redis_web_core::config::{
-    Config, LogFsync, LogFsyncMode, TransportMode, DEFAULT_HTTP_MAX_REQUEST_SIZE,
-    DEFAULT_HTTP_THREADS, DEFAULT_POOL_SIZE_PER_THREAD, DEFAULT_VERBOSITY,
+    Config, TransportMode, DEFAULT_HTTP_MAX_REQUEST_SIZE, DEFAULT_HTTP_THREADS,
+    DEFAULT_POOL_SIZE_PER_THREAD, DEFAULT_VERBOSITY,
 };
 use redis_web_runtime::redis;
 use serde_json::json;
@@ -43,14 +43,9 @@ fn test_config_loading() {
         "http_host": "0.0.0.0",
         "http_port": 7379,
         "database": 0,
-        "daemonize": true,
         "websockets": true,
         "http_max_request_size": 1024,
-        "user": "nobody",
-        "group": "nogroup",
-        "verbosity": 5,
-        "logfile": "test.log",
-        "log_fsync": "auto"
+        "verbosity": 5
     }"#;
 
     // Write to a temporary file (automatically cleaned up when dropped)
@@ -63,12 +58,10 @@ fn test_config_loading() {
 
     // Verify required fields
     assert_eq!(config.redis_host, "127.0.0.1");
-    assert_eq!(config.daemonize, true);
     assert_eq!(config.websockets, true);
 
     // Verify optional fields are correctly parsed as Some(value)
     assert_eq!(config.http_max_request_size, Some(1024));
-    assert_eq!(config.user, Some("nobody".to_string()));
     assert_eq!(config.verbosity, Some(5));
 }
 
@@ -100,18 +93,13 @@ fn test_default_values() {
     let config = Config::new(path).unwrap();
 
     // Verify boolean defaults are false
-    assert_eq!(config.daemonize, false);
     assert_eq!(config.websockets, false);
     assert_eq!(config.transport_mode, TransportMode::Rest);
     assert_eq!(config.runtime_worker_threads, None);
 
     // Verify optional fields are None when not specified
     assert_eq!(config.http_max_request_size, None);
-    assert_eq!(config.user, None);
-    assert!(config.compat_hiredis.is_some());
-    let compat = config.compat_hiredis.as_ref().unwrap();
-    assert!(compat.enabled);
-    assert_eq!(compat.path_prefix, "/__compat");
+    assert!(config.compat_hiredis.is_none());
     assert_eq!(config.grpc.host, "0.0.0.0");
     assert_eq!(config.grpc.port, 7379);
     assert!(config.grpc.enable_health_service);
@@ -181,7 +169,37 @@ fn test_default_document_generation() {
         Some(7379)
     );
     assert!(!obj.contains_key("redis_auth"));
-    assert!(!obj.contains_key("logfile"));
+    assert!(
+        !obj.contains_key("compat_hiredis"),
+        "compat_hiredis should be omitted from the default document"
+    );
+}
+
+/// Ensures the generated starter configuration stays intentionally small.
+#[test]
+fn test_starter_document_generation() {
+    let value = Config::starter_document("./redis-web.schema.json");
+    let obj = value
+        .as_object()
+        .expect("starter document should be a JSON object");
+
+    assert_eq!(
+        obj.get("$schema").and_then(|v| v.as_str()),
+        Some("./redis-web.schema.json")
+    );
+    assert_eq!(
+        obj.get("redis_host").and_then(|v| v.as_str()),
+        Some("127.0.0.1")
+    );
+    assert_eq!(obj.get("redis_port").and_then(|v| v.as_u64()), Some(6379));
+    assert_eq!(
+        obj.get("http_host").and_then(|v| v.as_str()),
+        Some("127.0.0.1")
+    );
+    assert_eq!(obj.get("http_port").and_then(|v| v.as_u64()), Some(7379));
+    assert_eq!(obj.get("database").and_then(|v| v.as_u64()), Some(0));
+    assert!(!obj.contains_key("compat_hiredis"));
+    assert!(!obj.contains_key("websockets"));
 }
 
 /// Ensures legacy aliases (`threads`, `pool_size`) are mapped when canonical
@@ -272,7 +290,7 @@ fn test_env_var_expansion_missing_var_fails() {
         "http_host": "127.0.0.1",
         "http_port": 7379,
         "database": 0,
-        "logfile": "$MISSING_VAR"
+        "default_root": "$MISSING_VAR"
     }"#;
 
     let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
@@ -286,7 +304,7 @@ fn test_env_var_expansion_missing_var_fails() {
         "error should mention missing env var name, got: {msg}"
     );
     assert!(
-        msg.contains("logfile"),
+        msg.contains("default_root"),
         "error should mention the config key path, got: {msg}"
     );
 }
@@ -440,44 +458,6 @@ fn test_grpc_config_parses() {
     assert!(config.grpc.enable_reflection);
     assert_eq!(config.grpc.max_decoding_message_size, Some(4096));
     assert_eq!(config.grpc.max_encoding_message_size, Some(8192));
-}
-
-/// The legacy `log_fsync` option parses string modes (`auto`, `all`).
-#[test]
-fn test_log_fsync_parses_modes() {
-    let config_json = r#"{
-  "log_fsync": "auto"
-}"#;
-    let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-    write!(file, "{}", config_json).unwrap();
-    let config = Config::new(file.path().to_str().unwrap()).unwrap();
-    assert!(matches!(
-        config.log_fsync,
-        Some(LogFsync::Mode(LogFsyncMode::Auto))
-    ));
-
-    let config_json = r#"{
-  "log_fsync": "all"
-}"#;
-    let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-    write!(file, "{}", config_json).unwrap();
-    let config = Config::new(file.path().to_str().unwrap()).unwrap();
-    assert!(matches!(
-        config.log_fsync,
-        Some(LogFsync::Mode(LogFsyncMode::All))
-    ));
-}
-
-/// The legacy `log_fsync` option parses an integer millisecond interval.
-#[test]
-fn test_log_fsync_parses_millis() {
-    let config_json = r#"{
-  "log_fsync": 25
-}"#;
-    let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-    write!(file, "{}", config_json).unwrap();
-    let config = Config::new(file.path().to_str().unwrap()).unwrap();
-    assert!(matches!(config.log_fsync, Some(LogFsync::Millis(25))));
 }
 
 #[test]

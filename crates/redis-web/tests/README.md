@@ -9,7 +9,7 @@ The suite is split into three layers:
    - No network and no Redis dependency.
 
 2. `functional` (non-Redis contract tests)
-   - `config_test`, `handler_test`, `logging_fsync_test`
+   - `config_test`, `handler_test`
    - `functional_http_contract_test`
    - `functional_interface_mapping_test`
    - `functional_ws_contract_test`
@@ -30,7 +30,7 @@ The suite is split into three layers:
 cargo test --lib
 
 # Functional only (non-Redis)
-cargo test --test config_test --test handler_test --test logging_fsync_test \
+cargo test --test config_test --test handler_test \
   --test functional_interface_mapping_test --test functional_http_contract_test --test functional_ws_contract_test
 
 # Integration only (Redis/process/socket)
